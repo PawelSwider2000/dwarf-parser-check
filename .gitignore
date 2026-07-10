@@ -1,0 +1,29 @@
+# Build directories
+/build/
+
+# CMake and CTest generated files
+/CMakeUserPresets.json
+/Testing/
+/compile_commands.json
+
+# Native build artifacts
+*.o
+*.obj
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.lib
+*.exp
+*.pdb
+*.exe
+
+# Local sample DWARF inputs
+/dwarf_files/
+*.dwarf
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
