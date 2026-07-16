@@ -7,6 +7,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace dwarf_parser_check {
 namespace {
@@ -21,16 +22,15 @@ std::optional<std::uint64_t> parse_ip(std::string_view value) {
   return ip;
 }
 
-std::string path_kind_label(PathKind kind) {
-  switch (kind) {
-    case PathKind::kUser:
-      return "user";
-    case PathKind::kSystem:
-      return "system";
-    case PathKind::kUnknown:
-    default:
-      return "unknown";
+std::string join_adapter_names(const std::vector<std::string>& names) {
+  std::ostringstream stream;
+  for (std::size_t index = 0; index < names.size(); ++index) {
+    if (index != 0U) {
+      stream << ", ";
+    }
+    stream << names[index];
   }
+  return stream.str();
 }
 
 void print_location(const SourceLocation& location, std::ostream& output) {
@@ -45,7 +45,7 @@ void print_location(const SourceLocation& location, std::ostream& output) {
     output << ':' << *location.location.column;
   }
 
-  output << " [" << path_kind_label(location.path_kind) << "]\n";
+  output << '\n';
 
   for (const InlineFrame& frame : location.inline_chain) {
     output << "    inline: " << frame.function_name << " at " << frame.file;
@@ -103,6 +103,15 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
+    if (argument == "--mangled-kernel") {
+      const auto value = require_value(argument);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      options.request.mangled_kernel_name = std::string(*value);
+      continue;
+    }
+
     if (argument == "--ip") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
@@ -136,17 +145,12 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
-    if (argument == "--project-root") {
+    if (argument == "--adapters") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
         return std::nullopt;
       }
-      options.request.project_root = std::filesystem::path(*value);
-      continue;
-    }
-
-    if (argument == "--first-only") {
-      options.resolve_options.stop_after_first_success = true;
+      options.adapter_selection = std::string(*value);
       continue;
     }
 
@@ -164,6 +168,11 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
     return std::nullopt;
   }
 
+  if (options.request.mangled_kernel_name.empty()) {
+    error_stream << "--mangled-kernel is required\n";
+    return std::nullopt;
+  }
+
   if (options.request.ips.empty() && !options.request.resolve_all_ips) {
     error_stream << "provide at least one --ip or use --all-ips\n";
     return std::nullopt;
@@ -173,16 +182,19 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
 }
 
 void print_usage(std::ostream& output, const char* program_name) {
+  const std::vector<std::string> adapters = compiled_adapter_names();
+  const std::string adapter_list = adapters.empty() ? "(none)" : join_adapter_names(adapters);
+
   output << "Usage: " << program_name << " --dwarf-file <PATH> --kernel <NAME> [options]\n"
          << "\n"
          << "Options:\n"
          << "  --dwarf-file <PATH>   Path to compressed DWARF file\n"
-         << "  --kernel <NAME>       Kernel name to resolve\n"
+      << "  --kernel <NAME>       Demangled kernel name to report\n"
+      << "  --mangled-kernel <NAME>  Mangled symbol selector used by adapters\n"
          << "  --ip <HEX_OR_DEC>     Instruction pointer to resolve, repeatable\n"
          << "  --all-ips             Resolve all available IPs\n"
+         << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional VTune reference file\n"
-         << "  --project-root <PATH> Optional root used to prefer user paths\n"
-         << "  --first-only          Stop after the first successful adapter\n"
          << "  --help, -h            Show this help message\n";
 }
 

@@ -1,0 +1,20 @@
+[package]
+name = "dpc_addr2line"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+addr2line = "0.21"
+gimli = "0.28"
+object = "0.32"
+
+[[test]]
+name = "rust_gimli_tests"
+path = "../../../tests/rust_gimli_tests.rs"
+
+[[test]]
+name = "rust_gimli_internal_tests"
+path = "../../../tests/rust_gimli_internal_tests.rs"

@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -10,18 +11,19 @@
 
 namespace dwarf_parser_check {
 
-struct ResolveOptions {
-  bool stop_after_first_success = false;
-  bool compare_with_reference = true;
-};
-
 struct ResolveReport {
   std::vector<KernelResolution> resolutions;
   std::optional<ComparisonReport> comparison;
   std::vector<std::string> diagnostics;
 
   [[nodiscard]] bool empty() const noexcept {
-    return resolutions.empty();
+    for (const KernelResolution& resolution : resolutions) {
+      if (!resolution.locations.empty()) {
+        return false;
+      }
+    }
+
+    return true;
   }
 };
 
@@ -43,7 +45,7 @@ class ResolverEngine {
 
   [[nodiscard]] const AdapterRegistry& registry() const noexcept;
 
-  [[nodiscard]] ResolveReport resolve(const ResolveRequest& request, const ResolveOptions& options = {}) const;
+  [[nodiscard]] ResolveReport resolve(const ResolveRequest& request) const;
 
  private:
   AdapterRegistry registry_;
@@ -51,9 +53,14 @@ class ResolverEngine {
 
 AdapterRegistry make_default_registry();
 
+AdapterRegistry make_registry(std::vector<DwarfAdapterPtr> adapters);
+
+std::vector<std::string> compiled_adapter_names();
+
+std::vector<DwarfAdapterPtr> create_adapters(std::string_view selection);
+
 ResolveReport resolve_request(
     const ResolverEngine& engine,
-    const ResolveRequest& request,
-    const ResolveOptions& options = {});
+  const ResolveRequest& request);
 
 }  // namespace dwarf_parser_check

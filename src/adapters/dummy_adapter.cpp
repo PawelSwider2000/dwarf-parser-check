@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,7 +16,8 @@ class DummyAdapter final : public DwarfAdapter {
   }
 
   [[nodiscard]] bool supports(const ResolveRequest& request) const override {
-    return !request.dwarf_file.empty() && !request.kernel_name.empty();
+    return !request.dwarf_file.empty() && !request.kernel_name.empty() &&
+        !request.mangled_kernel_name.empty();
   }
 
   [[nodiscard]] KernelResolution resolve_kernel(const ResolveRequest& request) const override {
@@ -35,12 +35,9 @@ class DummyAdapter final : public DwarfAdapter {
       SourceLocation location;
       location.location.kernel_name = request.kernel_name;
       location.location.ip = ip;
-      location.location.file = request.project_root.has_value()
-          ? (std::filesystem::path(*request.project_root) / "kernel_source.cpp").string()
-          : std::string("kernel_source.cpp");
+      location.location.file = "kernel_source.cpp";
       location.location.line = static_cast<std::uint64_t>((ip % 97U) + 1U);
       location.location.column = 1;
-      location.path_kind = PathKind::kUser;
       location.backend_notes.push_back("Synthetic result generated for scaffolding.");
 
       InlineFrame frame;

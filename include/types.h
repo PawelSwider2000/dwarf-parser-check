@@ -8,19 +8,13 @@
 
 namespace dwarf_parser_check {
 
-enum class PathKind {
-  kUnknown,
-  kUser,
-  kSystem,
-};
-
 struct ResolveRequest {
   std::filesystem::path dwarf_file;
   std::string kernel_name;
+  std::string mangled_kernel_name;
   std::vector<std::uint64_t> ips;
   bool resolve_all_ips = false;
   std::optional<std::filesystem::path> reference_file;
-  std::optional<std::filesystem::path> project_root;
 };
 
 struct InlineFrame {
@@ -42,11 +36,6 @@ struct SourceLocation {
   Location location;
   std::vector<InlineFrame> inline_chain;
   std::vector<std::string> backend_notes;
-  PathKind path_kind = PathKind::kUnknown;
-
-  [[nodiscard]] bool is_user_code_candidate() const noexcept {
-    return path_kind == PathKind::kUser;
-  }
 };
 
 struct KernelResolution {

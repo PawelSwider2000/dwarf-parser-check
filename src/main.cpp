@@ -19,8 +19,8 @@ int main(int argc, char** argv) {
   }
 
   try {
-    ResolverEngine engine(make_default_registry());
-    const ResolveReport report = resolve_request(engine, cli->request, cli->resolve_options);
+    ResolverEngine engine(make_registry(create_adapters(cli->adapter_selection)));
+    const ResolveReport report = resolve_request(engine, cli->request);
     print_report(report, std::cout);
     return report.empty() ? 1 : 0;
   } catch (const std::exception& error) {

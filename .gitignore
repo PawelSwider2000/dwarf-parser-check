@@ -1,5 +1,6 @@
 # Build directories
 /build/
+/src/adapters/gimli/target/
 
 # CMake and CTest generated files
 /CMakeUserPresets.json

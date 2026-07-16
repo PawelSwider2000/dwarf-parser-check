@@ -2,6 +2,7 @@
 
 #include <iosfwd>
 #include <optional>
+#include <string>
 
 #include "core.h"
 
@@ -9,7 +10,7 @@ namespace dwarf_parser_check {
 
 struct CliOptions {
   ResolveRequest request;
-  ResolveOptions resolve_options;
+  std::string adapter_selection = "all";
   bool show_help = false;
 };
 
