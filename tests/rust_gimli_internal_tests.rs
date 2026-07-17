@@ -13,7 +13,7 @@ use rust_impl::{
 
 fn sample_dwarf_path() -> String {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../dwarf_files/PrimaryGEMMKernel.dwarf")
+        .join("../../../artifacts/_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.dwarf")
         .to_string_lossy()
         .into_owned()
 }

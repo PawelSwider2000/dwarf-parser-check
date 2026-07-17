@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -7,13 +8,15 @@
 
 #include "cli.h"
 #include "core.h"
+#include "kernel_debug_manifest.h"
 #include "adapters/gimli/rust_gimli_adapter.h"
 
 namespace dwarf_parser_check {
 namespace {
 
 std::filesystem::path sample_dwarf_path() {
-  return std::filesystem::path(DPC_SOURCE_DIR) / "dwarf_files" / "PrimaryGEMMKernel.dwarf";
+  return std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" /
+      "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.dwarf";
 }
 
 bool ends_with(std::string_view text, std::string_view suffix) {
@@ -99,6 +102,31 @@ TEST(CliTest, RejectsLegacyMetadataOptions) {
   EXPECT_NE(errors.str().find("unknown argument: --dwarf-file"), std::string::npos);
 }
 
+TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
+  const std::filesystem::path manifest_path =
+      std::filesystem::temp_directory_path() / "dwarf_parser_check_manifest_test.json";
+  {
+    std::ofstream manifest(manifest_path);
+    ASSERT_TRUE(manifest);
+    manifest << R"({"kernels":[
+      {"name":"first","mangled_name":"_ZFirst","demangled_name":"First","elf_dwarf_path":"/tmp/first.dwarf"},
+      {"name":"second","mangled_name":"_ZSecond","demangled_name":"Second","elf_dwarf_path":"/tmp/second.dwarf"}
+    ]})";
+  }
+
+  const std::vector<KernelDebugData> kernels = load_kernel_debug_manifest(manifest_path);
+  std::filesystem::remove(manifest_path);
+
+  ASSERT_EQ(kernels.size(), 2U);
+  EXPECT_EQ(kernels[0].demangled_name, "First");
+  EXPECT_EQ(kernels[1].demangled_name, "Second");
+
+  const ResolveRequest first_request = make_resolve_request(kernels[0]);
+  const ResolveRequest second_request = make_resolve_request(kernels[1]);
+  EXPECT_EQ(first_request.dwarf_file, "/tmp/first.dwarf");
+  EXPECT_EQ(second_request.mangled_kernel_name, "_ZSecond");
+}
+
 TEST(CoreTest, CreateAdaptersTrimsWhitespace) {
   auto adapters = create_adapters("  rust-gimli\t ");
 
@@ -130,10 +158,10 @@ TEST(RustGimliAdapterTest, ResolveAllIpsMapsPrimaryBodyToUserSource) {
 
   ASSERT_FALSE(resolution.locations.empty());
   EXPECT_EQ(resolution.backend_name, "rust-gimli");
-  EXPECT_EQ(resolution.locations.front().location.ip, 0xffff8000fff86d00ULL);
+  EXPECT_EQ(resolution.locations.front().location.ip, 0xffff8000fff80000ULL);
   EXPECT_TRUE(ends_with(resolution.locations.front().location.file, "simple_sycl_vtune.cpp"));
   ASSERT_TRUE(resolution.locations.front().location.line.has_value());
-  EXPECT_EQ(*resolution.locations.front().location.line, 211U);
+  EXPECT_EQ(*resolution.locations.front().location.line, 202U);
 }
 
 }  // namespace

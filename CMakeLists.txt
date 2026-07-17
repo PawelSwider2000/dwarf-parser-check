@@ -12,6 +12,7 @@ set(DPC_SOURCES
   src/cli.cpp
   src/core.cpp
   src/compare.cpp
+  src/kernel_debug_manifest.cpp
 )
 
 add_library(dwarf_parser_check_lib ${DPC_SOURCES})

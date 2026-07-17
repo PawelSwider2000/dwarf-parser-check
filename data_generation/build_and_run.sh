@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
+ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/../artifacts"}
 BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
 JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
 PARSER_BIN=${PARSER_BIN:-"$SCRIPT_DIR/../build/dwarf-parser-check"}

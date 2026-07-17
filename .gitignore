@@ -1,7 +1,7 @@
 # Build directories
 /build/
 /src/adapters/gimli/target/
-data_generation/artifacts/
+/artifacts/
 
 # CMake and CTest generated files
 /CMakeUserPresets.json

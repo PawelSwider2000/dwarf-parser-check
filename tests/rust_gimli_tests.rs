@@ -10,7 +10,7 @@ use dpc_addr2line::{
 
 fn sample_dwarf_path() -> CString {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../dwarf_files/PrimaryGEMMKernel.dwarf");
+        .join("../../../artifacts/_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.dwarf");
     CString::new(path.to_string_lossy().into_owned()).expect("sample path should not contain NUL")
 }
 
@@ -94,7 +94,7 @@ fn sample_dwarf_primary_kernel_enumerates_real_user_body() {
     assert!(addresses.len > 0);
 
     let values = unsafe { std::slice::from_raw_parts(addresses.values, addresses.len) };
-    assert_eq!(values[0], 0xffff8000fff86d00);
+    assert_eq!(values[0], 0xffff8000fff80000);
 
     dpc_addr2line_addresses_dispose(&mut addresses);
     dpc_addr2line_context_free(context);
@@ -161,9 +161,9 @@ fn invalid_utf8_kernel_name_is_rejected() {
 fn sample_dwarf_primary_kernel_ip_resolves_to_source() {
     let context = sample_context();
 
-    let mut location = resolve_address(context, 0xffff8000fff86d00);
+    let mut location = resolve_address(context, 0xffff8000fff80000);
     assert_eq!(location.has_line, 1);
-    assert_eq!(location.line, 211);
+    assert_eq!(location.line, 202);
 
     let file = unsafe { CStr::from_ptr(location.file) }.to_string_lossy().into_owned();
     assert!(file.ends_with("simple_sycl_vtune.cpp"));
@@ -177,10 +177,10 @@ fn null_resolution_arguments_are_rejected() {
     let context = sample_context();
     let mut location = empty_location();
 
-    assert_eq!(dpc_addr2line_resolve_address(ptr::null_mut(), 0xffff8000fff86d00, &mut location), -1);
+    assert_eq!(dpc_addr2line_resolve_address(ptr::null_mut(), 0xffff8000fff80000, &mut location), -1);
     assert!(last_error_text().contains("context or location was null"));
 
-    assert_eq!(dpc_addr2line_resolve_address(context, 0xffff8000fff86d00, ptr::null_mut()), -1);
+    assert_eq!(dpc_addr2line_resolve_address(context, 0xffff8000fff80000, ptr::null_mut()), -1);
     assert!(last_error_text().contains("context or location was null"));
 
     dpc_addr2line_context_free(context);
