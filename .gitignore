@@ -1,6 +1,7 @@
 # Build directories
 /build/
 /src/adapters/gimli/target/
+data_generation/artifacts/
 
 # CMake and CTest generated files
 /CMakeUserPresets.json
@@ -20,8 +21,7 @@
 *.pdb
 *.exe
 
-# Local sample DWARF inputs
-/dwarf_files/
+# Generated DWARF artifacts
 *.dwarf
 
 # Editor and OS files
