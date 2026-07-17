@@ -7,19 +7,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DPC_ENABLE_WARNINGS "Enable compiler warnings" ON)
-option(DPC_ENABLE_DUMMY_ADAPTER "Build the synthetic dummy adapter" ON)
 
 set(DPC_SOURCES
   src/cli.cpp
   src/core.cpp
   src/compare.cpp
 )
-
-if(DPC_ENABLE_DUMMY_ADAPTER)
-  list(APPEND DPC_SOURCES
-    src/adapters/dummy_adapter.cpp
-  )
-endif()
 
 add_library(dwarf_parser_check_lib ${DPC_SOURCES})
 
@@ -31,10 +24,6 @@ target_include_directories(dwarf_parser_check_lib
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-
-if(DPC_ENABLE_DUMMY_ADAPTER)
-  target_compile_definitions(dwarf_parser_check_lib PUBLIC DPC_HAVE_DUMMY_ADAPTER=1)
-endif()
 
 add_subdirectory(src/adapters/gimli)
 

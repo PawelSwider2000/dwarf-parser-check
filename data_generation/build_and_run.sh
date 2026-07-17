@@ -5,6 +5,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
 BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
 JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
+PARSER_BIN=${PARSER_BIN:-"$SCRIPT_DIR/../build/dwarf-parser-check"}
 TOTAL_LOOPS=${1:-1}
 MATRIX_SIZE=${2:-128}
 
@@ -27,3 +28,9 @@ popd >/dev/null
 
 echo "binary: $BIN_PATH"
 echo "json:   $JSON_PATH"
+
+if [[ -x "$PARSER_BIN" ]]; then
+  "$PARSER_BIN" --kernel-debug-json "$JSON_PATH" --adapters rust-gimli
+else
+  echo "parser not found or not executable: $PARSER_BIN" >&2
+fi

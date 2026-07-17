@@ -1,5 +1,7 @@
 #include "cli.h"
 
+#include "core.h"
+
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -85,30 +87,12 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       return std::string_view(argv[index]);
     };
 
-    if (argument == "--dwarf-file") {
+    if (argument == "--kernel-debug-json") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
         return std::nullopt;
       }
-      options.request.dwarf_file = *value;
-      continue;
-    }
-
-    if (argument == "--kernel") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.request.kernel_name = std::string(*value);
-      continue;
-    }
-
-    if (argument == "--mangled-kernel") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.request.mangled_kernel_name = std::string(*value);
+      options.kernel_debug_json = *value;
       continue;
     }
 
@@ -123,7 +107,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
           error_stream << "invalid IP value: " << *value << '\n';
           return std::nullopt;
         }
-        options.request.ips.push_back(*ip);
+        options.ips.push_back(*ip);
       } catch (const std::exception&) {
         error_stream << "invalid IP value: " << *value << '\n';
         return std::nullopt;
@@ -132,7 +116,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
     }
 
     if (argument == "--all-ips") {
-      options.request.resolve_all_ips = true;
+      options.resolve_all_ips = true;
       continue;
     }
 
@@ -141,7 +125,7 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       if (!value.has_value()) {
         return std::nullopt;
       }
-      options.request.reference_file = std::filesystem::path(*value);
+      options.reference_file = std::filesystem::path(*value);
       continue;
     }
 
@@ -158,23 +142,8 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
     return std::nullopt;
   }
 
-  if (options.request.dwarf_file.empty()) {
-    error_stream << "--dwarf-file is required\n";
-    return std::nullopt;
-  }
-
-  if (options.request.kernel_name.empty()) {
-    error_stream << "--kernel is required\n";
-    return std::nullopt;
-  }
-
-  if (options.request.mangled_kernel_name.empty()) {
-    error_stream << "--mangled-kernel is required\n";
-    return std::nullopt;
-  }
-
-  if (options.request.ips.empty() && !options.request.resolve_all_ips) {
-    error_stream << "provide at least one --ip or use --all-ips\n";
+  if (options.kernel_debug_json.empty()) {
+    error_stream << "--kernel-debug-json is required\n";
     return std::nullopt;
   }
 
@@ -185,12 +154,10 @@ void print_usage(std::ostream& output, const char* program_name) {
   const std::vector<std::string> adapters = compiled_adapter_names();
   const std::string adapter_list = adapters.empty() ? "(none)" : join_adapter_names(adapters);
 
-  output << "Usage: " << program_name << " --dwarf-file <PATH> --kernel <NAME> [options]\n"
+  output << "Usage: " << program_name << " --kernel-debug-json <PATH> [options]\n"
          << "\n"
          << "Options:\n"
-         << "  --dwarf-file <PATH>   Path to compressed DWARF file\n"
-      << "  --kernel <NAME>       Demangled kernel name to report\n"
-      << "  --mangled-kernel <NAME>  Mangled symbol selector used by adapters\n"
+        << "  --kernel-debug-json <PATH>  Metadata JSON written by simple_sycl_vtune\n"
          << "  --ip <HEX_OR_DEC>     Instruction pointer to resolve, repeatable\n"
          << "  --all-ips             Resolve all available IPs\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"

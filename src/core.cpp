@@ -6,7 +6,6 @@
 #include <string_view>
 
 #include "compare.h"
-#include "dummy_adapter.h"
 #include "adapters/gimli/rust_gimli_adapter.h"
 
 namespace dwarf_parser_check {
@@ -22,9 +21,6 @@ std::vector<AdapterDescriptor> compiled_adapter_descriptors() {
   std::vector<AdapterDescriptor> descriptors;
 #if defined(DPC_HAVE_RUST_GIMLI_ADAPTER)
   descriptors.push_back({"rust-gimli", &make_rust_gimli_adapter});
-#endif
-#if defined(DPC_HAVE_DUMMY_ADAPTER)
-  descriptors.push_back({"dummy", &make_dummy_adapter});
 #endif
   return descriptors;
 }

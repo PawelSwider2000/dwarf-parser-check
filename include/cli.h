@@ -1,15 +1,21 @@
 #pragma once
 
+#include <cstdint>
+#include <filesystem>
 #include <iosfwd>
 #include <optional>
 #include <string>
-
-#include "core.h"
+#include <vector>
 
 namespace dwarf_parser_check {
 
+struct ResolveReport;
+
 struct CliOptions {
-  ResolveRequest request;
+  std::filesystem::path kernel_debug_json;
+  std::vector<std::uint64_t> ips;
+  bool resolve_all_ips = false;
+  std::optional<std::filesystem::path> reference_file;
   std::string adapter_selection = "all";
   bool show_help = false;
 };
