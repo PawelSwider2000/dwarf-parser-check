@@ -19,11 +19,6 @@ typedef struct DpcAddr2LineLocation {
   uint8_t has_column;
 } DpcAddr2LineLocation;
 
-typedef struct DpcAddr2LineAddresses {
-  uint64_t* values;
-  size_t len;
-} DpcAddr2LineAddresses;
-
 const char* dpc_addr2line_last_error(void);
 
 DpcAddr2LineContext* dpc_addr2line_context_new(const char* path);
@@ -34,13 +29,7 @@ int dpc_addr2line_resolve_address(
     uint64_t address,
     DpcAddr2LineLocation* location);
 
-int dpc_addr2line_enumerate_kernel_ips(
-  DpcAddr2LineContext* context,
-  const char* mangled_kernel_name,
-  DpcAddr2LineAddresses* addresses);
-
 void dpc_addr2line_location_dispose(DpcAddr2LineLocation* location);
-void dpc_addr2line_addresses_dispose(DpcAddr2LineAddresses* addresses);
 
 #ifdef __cplusplus
 }

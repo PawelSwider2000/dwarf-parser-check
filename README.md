@@ -181,9 +181,10 @@ ctest --test-dir build --output-on-failure
 cargo test --manifest-path src/adapters/gimli/Cargo.toml --tests
 ```
 
-`data_generation/build_and_run.sh` runs this JSON-based resolver command after
-it generates the sample artifact. Set `PARSER_BIN` to use a parser binary at a
-different path.
+`data_generation/make_reference run` runs this JSON-based resolver command
+after it generates the sample artifact. Use `data_generation/make_reference
+build run` to build the sample first, and set `PARSER_BIN` to use a parser
+binary at a different path.
 
 ## Project Layout
 

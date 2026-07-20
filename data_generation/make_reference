@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/../artifacts"}
+BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
+JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
+PARSER_BIN=${PARSER_BIN:-"$SCRIPT_DIR/../build/dwarf-parser-check"}
+TOTAL_LOOPS=${TOTAL_LOOPS:-1}
+MATRIX_SIZE=${MATRIX_SIZE:-1024}
+VTUNE_BIN=${VTUNE_BIN:-vtune}
+VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-"$ARTIFACT_DIR/vtune_pc_sampling"}
+VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
+VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-"$ARTIFACT_DIR/result_vtune_reference.csv"}
+VTUNE_SOURCE_LOCATIONS_JSON=${VTUNE_SOURCE_LOCATIONS_JSON:-"$ARTIFACT_DIR/source_locations.json"}
+USER_SOURCE_ROOT=${USER_SOURCE_ROOT:-"$SCRIPT_DIR"}
+VTUNE_ZEBIN=${VTUNE_ZEBIN:-}
+READELF_BIN=${READELF_BIN:-readelf}
+
+log() {
+  printf '[make_reference] %s\n' "$*"
+}
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") <command> [<command> ...]
+
+Commands execute in the order provided:
+  build      Build the SYCL sample.
+  run        Run the sample and resolve its generated kernel debug metadata.
+  vtune_run  Profile the sample with VTune GPU PC sampling.
+  analyze    Generate a VTune address-to-source-line CSV report.
+
+Configuration is provided through environment variables:
+  TOTAL_LOOPS       Sample loop count (default: 1)
+  MATRIX_SIZE       Sample matrix dimension (default: 128)
+  ARTIFACT_DIR      Generated-artifact directory
+  PARSER_BIN        dwarf-parser-check executable
+  VTUNE_BIN         VTune CLI executable (default: vtune)
+  VTUNE_RESULT_DIR  VTune result directory
+  VTUNE_COMPUTING_TASK
+                      GPU computing task to analyze (default: PrimaryGEMMKernel)
+  VTUNE_REFERENCE_CSV
+                      Output CSV path (default: artifacts/result_vtune_reference.csv)
+  VTUNE_SOURCE_LOCATIONS_JSON
+                      Per-IP highest user locations JSON output path
+  USER_SOURCE_ROOT    Root directory used to identify user source files
+  VTUNE_ZEBIN        GPU binary to use when the result contains multiple .zebin files
+  READELF_BIN        readelf executable used for DWARF line decoding
+EOF
+}
+
+build() {
+  log "build: compiling SYCL sample"
+  mkdir -p "$ARTIFACT_DIR"
+
+  pushd "$SCRIPT_DIR" >/dev/null
+  icpx \
+    -fsycl -std=c++20 -g -O0 \
+    simple_sycl_vtune.cpp \
+    kernel_debug_info.cpp \
+    -lze_loader \
+    -o "$BIN_PATH"
+  popd >/dev/null
+
+  log "build: binary: $BIN_PATH"
+}
+
+run() {
+  log "run: executing sample (loops=$TOTAL_LOOPS, matrix_size=$MATRIX_SIZE)"
+  if [[ ! -x "$BIN_PATH" ]]; then
+    echo "sample binary not found or not executable: $BIN_PATH; run 'build' first" >&2
+    return 1
+  fi
+
+  (
+    cd "$ARTIFACT_DIR"
+    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
+    "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH"
+  )
+
+  log "run: json: $JSON_PATH"
+
+  if [[ -x "$PARSER_BIN" ]]; then
+    log "run: resolving kernel debug metadata with $PARSER_BIN"
+    "$PARSER_BIN" --kernel-debug-json "$JSON_PATH" --adapters rust-gimli
+  else
+    echo "parser not found or not executable: $PARSER_BIN" >&2
+  fi
+}
+
+vtune_run() {
+  log "vtune_run: collecting GPU stall reasons into $VTUNE_RESULT_DIR"
+  if [[ ! -x "$BIN_PATH" ]]; then
+    echo "sample binary not found or not executable: $BIN_PATH; run 'build' first" >&2
+    return 1
+  fi
+
+  mkdir -p "$ARTIFACT_DIR"
+  if [[ -e "$VTUNE_RESULT_DIR" ]]; then
+    log "vtune_run: removing previous result: $VTUNE_RESULT_DIR"
+    rm -rf "$VTUNE_RESULT_DIR"
+  fi
+
+  "$VTUNE_BIN" \
+    -collect gpu-hotspots \
+    -knob gpu-profiling-mode=source-analysis \
+    -knob source-analysis=stall-sampling \
+    -result-dir "$VTUNE_RESULT_DIR" \
+    -- "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH"
+
+  log "vtune_run: VTune result: $VTUNE_RESULT_DIR"
+}
+
+analyze() {
+  log "analyze: generating source correlation for $VTUNE_COMPUTING_TASK"
+  if [[ ! -d "$VTUNE_RESULT_DIR" ]]; then
+    echo "VTune result directory not found: $VTUNE_RESULT_DIR; run 'vtune_run' first" >&2
+    return 1
+  fi
+
+  mkdir -p "$(dirname "$VTUNE_REFERENCE_CSV")"
+  local raw_report
+  raw_report=$(mktemp "${TMPDIR:-/tmp}/vtune-reference.XXXXXX.csv")
+  "$VTUNE_BIN" \
+    -report hotspots \
+    -result-dir "$VTUNE_RESULT_DIR" \
+    -source-object "computing-task=$VTUNE_COMPUTING_TASK" \
+    -group-by address \
+    -format csv \
+    -csv-delimiter comma \
+    -report-width 0 \
+    -report-output "$raw_report"
+
+  local correlate_args=(
+    --input "$raw_report"
+    --output "$VTUNE_REFERENCE_CSV"
+    --result-dir "$VTUNE_RESULT_DIR"
+    --source-locations-output "$VTUNE_SOURCE_LOCATIONS_JSON"
+    --user-source-root "$USER_SOURCE_ROOT"
+    --readelf "$READELF_BIN"
+  )
+  if [[ -n "$VTUNE_ZEBIN" ]]; then
+    correlate_args+=(--zebin "$VTUNE_ZEBIN")
+  fi
+  if ! python3 "$SCRIPT_DIR/correlate_vtune_report.py" "${correlate_args[@]}"; then
+    rm -f "$raw_report"
+    return 1
+  fi
+  rm -f "$raw_report"
+
+  log "analyze: CSV report: $VTUNE_REFERENCE_CSV"
+  log "analyze: user source locations: $VTUNE_SOURCE_LOCATIONS_JSON"
+}
+
+if [[ $# -eq 0 ]]; then
+  usage >&2
+  exit 1
+fi
+
+for command in "$@"; do
+  case "$command" in
+    build|run|vtune_run|analyze)
+      log "starting command: $command"
+      "$command"
+      ;;
+    --help|-h|help)
+      usage
+      ;;
+    *)
+      echo "unknown command: $command" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done

@@ -1,6 +1,7 @@
 #include "adapters/gimli/rust_gimli_adapter.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -13,6 +14,26 @@
 
 namespace dwarf_parser_check {
 namespace {
+
+PathKind classify_path(const std::string& path) {
+  constexpr std::array<const char*, 7> kSystemPrefixes = {
+      "/usr/",
+      "/lib/",
+      "/lib64/",
+      "/bin/",
+      "/sbin/",
+      "/opt/intel/",
+      "/opt/compiler/",
+  };
+
+  for (const char* prefix : kSystemPrefixes) {
+    if (path.rfind(prefix, 0) == 0) {
+      return PathKind::kSystem;
+    }
+  }
+
+  return path.empty() ? PathKind::kUnknown : PathKind::kUser;
+}
 
 std::string consume_c_string(char*& value) {
   if (value == nullptr) {
@@ -45,30 +66,17 @@ class RustGimliAdapter final : public DwarfAdapter {
       return resolution;
     }
 
-    std::vector<std::uint64_t> ips = request.ips;
-    if (request.resolve_all_ips) {
-      DpcAddr2LineAddresses enumerated{};
-      const int status = dpc_addr2line_enumerate_kernel_ips(
-          context,
-          request.mangled_kernel_name.c_str(),
-          &enumerated);
-
-      if (status < 0) {
-        resolution.warnings.push_back(last_error("failed to enumerate kernel IPs"));
-      } else if (status == 0) {
-        resolution.warnings.push_back(
-            last_error("no kernel IPs were found for requested kernel"));
-      } else {
-        ips.insert(ips.end(), enumerated.values, enumerated.values + enumerated.len);
-      }
-
-      dpc_addr2line_addresses_dispose(&enumerated);
+    if (request.resolve_all_ips && request.ips.empty()) {
+      resolution.warnings.push_back(
+          "rust-gimli adapter does not enumerate all kernel IPs yet; provide explicit --ip values.");
+      dpc_addr2line_context_free(context);
+      return resolution;
     }
 
+    std::vector<std::uint64_t> ips = request.ips;
     std::sort(ips.begin(), ips.end());
     ips.erase(std::unique(ips.begin(), ips.end()), ips.end());
 
-    std::size_t unresolved_ip_count = 0;
     for (const std::uint64_t ip : ips) {
       DpcAddr2LineLocation native_location{};
       const int status = dpc_addr2line_resolve_address(context, ip, &native_location);
@@ -84,10 +92,10 @@ class RustGimliAdapter final : public DwarfAdapter {
         location.location.column = native_location.has_column != 0U
             ? std::optional<std::uint64_t>(native_location.column)
             : std::nullopt;
+        location.path_kind = classify_path(location.location.file);
 
         const std::string function_name = consume_c_string(native_location.function_name);
-        if (!function_name.empty() && function_name != request.kernel_name &&
-            function_name != request.mangled_kernel_name) {
+        if (!function_name.empty() && function_name != request.kernel_name) {
           location.backend_notes.push_back("resolved function: " + function_name);
         }
 
@@ -99,16 +107,9 @@ class RustGimliAdapter final : public DwarfAdapter {
       dpc_addr2line_location_dispose(&native_location);
       if (status < 0) {
         resolution.warnings.push_back(last_error("Rust addr2line lookup failed for IP 0x" + to_hex(ip)));
-      } else {
-        ++unresolved_ip_count;
       }
     }
 
-    if (request.resolve_all_ips && unresolved_ip_count != 0U) {
-      resolution.warnings.push_back(
-          std::to_string(unresolved_ip_count) +
-          " instruction IPs had no source line information and were omitted.");
-    }
     dpc_addr2line_context_free(context);
     return resolution;
   }
