@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -47,6 +48,23 @@ std::string find_string_field(const std::string& record, const char* field) {
   return unescape_json_string(match[1].str());
 }
 
+std::optional<std::uint64_t> find_uint64_field(
+    const std::string& record,
+    const char* field) {
+  const std::regex pattern(std::string("\\\"") + field +
+                           "\\\"\\s*:\\s*(?:\\\")?(0[xX][0-9a-fA-F]+|[0-9]+)(?:\\\")?");
+  std::smatch match;
+  if (!std::regex_search(record, match, pattern)) {
+    return std::nullopt;
+  }
+
+  try {
+    return std::stoull(match[1].str(), nullptr, 0);
+  } catch (const std::exception&) {
+    throw std::runtime_error(std::string("invalid unsigned integer for ") + field);
+  }
+}
+
 }  // namespace
 
 std::vector<KernelDebugData> load_kernel_debug_manifest(
@@ -66,12 +84,18 @@ std::vector<KernelDebugData> load_kernel_debug_manifest(
     if (record.find("\"mangled_name\"") == std::string::npos) {
       continue;
     }
-    kernels.push_back({
-        find_string_field(record, "name"),
-        find_string_field(record, "mangled_name"),
-        find_string_field(record, "demangled_name"),
-        find_string_field(record, "elf_dwarf_path"),
-    });
+    KernelDebugData kernel;
+    kernel.name = find_string_field(record, "name");
+    kernel.mangled_name = find_string_field(record, "mangled_name");
+    kernel.demangled_name = find_string_field(record, "demangled_name");
+    kernel.elf_dwarf_path = find_string_field(record, "elf_dwarf_path");
+    kernel.runtime_kernel_address =
+      find_uint64_field(record, "runtime_kernel_address").value_or(0);
+    if (const auto binary_size = find_uint64_field(record, "kernel_binary_size")) {
+      kernel.kernel_binary_size_collected = true;
+      kernel.kernel_binary_size = static_cast<std::size_t>(*binary_size);
+    }
+    kernels.push_back(std::move(kernel));
   }
 
   if (kernels.empty()) {
@@ -85,6 +109,8 @@ ResolveRequest make_resolve_request(const KernelDebugData& kernel) {
   request.dwarf_file = kernel.elf_dwarf_path;
   request.kernel_name = kernel.demangled_name;
   request.mangled_kernel_name = kernel.mangled_name;
+  request.runtime_kernel_address = kernel.runtime_kernel_address;
+  request.kernel_binary_size = kernel.kernel_binary_size;
   return request;
 }
 

@@ -106,6 +106,19 @@ void OnExitKernelCreate(ze_kernel_create_params_t *params,
     moduleNativeBinarySize = 0;
   }
 
+  bool kernelBinarySizeCollected = false;
+  size_t kernelBinarySize = 0;
+  if (kernel != nullptr) {
+    status = zeKernelGetBinaryExp(kernel, &kernelBinarySize, nullptr);
+    if (status != ZE_RESULT_SUCCESS) {
+      std::cerr << "[tracer] WARNING: zeKernelGetBinaryExp size query failed for "
+                << kernelName << "\n";
+      kernelBinarySize = 0;
+    } else {
+      kernelBinarySizeCollected = true;
+    }
+  }
+
   size_t debugInfoSize = 0;
   status = zetModuleGetDebugInfo(module, ZET_MODULE_DEBUG_INFO_FORMAT_ELF_DWARF,
                                  &debugInfoSize, nullptr);
@@ -137,6 +150,8 @@ void OnExitKernelCreate(ze_kernel_create_params_t *params,
   debugData.runtime_kernel_address = runtimeKernelAddress;
   debugData.module_debug_info_size = debugInfoSize;
   debugData.module_native_binary_size = moduleNativeBinarySize;
+  debugData.kernel_binary_size_collected = kernelBinarySizeCollected;
+  debugData.kernel_binary_size = kernelBinarySize;
   StoreKernelDebugData(std::move(debugData));
 }
 

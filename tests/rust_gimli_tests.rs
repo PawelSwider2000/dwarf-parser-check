@@ -88,7 +88,8 @@ fn sample_dwarf_primary_kernel_enumerates_real_user_body() {
         values: std::ptr::null_mut(),
         len: 0,
     };
-    let status = dpc_addr2line_enumerate_kernel_ips(context, kernel.as_ptr(), &mut addresses);
+    let status = dpc_addr2line_enumerate_kernel_ips(
+        context, kernel.as_ptr(), 0xffff8000fff80000, 81152, &mut addresses);
 
     assert_eq!(status, 1, "{}", last_error_text());
     assert!(addresses.len > 0);
@@ -110,13 +111,16 @@ fn null_enumeration_arguments_are_rejected() {
         len: 0,
     };
 
-    assert_eq!(dpc_addr2line_enumerate_kernel_ips(ptr::null_mut(), kernel.as_ptr(), &mut addresses), -1);
+    assert_eq!(dpc_addr2line_enumerate_kernel_ips(
+        ptr::null_mut(), kernel.as_ptr(), 0xffff8000fff80000, 81152, &mut addresses), -1);
     assert!(last_error_text().contains("was null"));
 
-    assert_eq!(dpc_addr2line_enumerate_kernel_ips(context, ptr::null(), &mut addresses), -1);
+    assert_eq!(dpc_addr2line_enumerate_kernel_ips(
+        context, ptr::null(), 0xffff8000fff80000, 81152, &mut addresses), -1);
     assert!(last_error_text().contains("was null"));
 
-    assert_eq!(dpc_addr2line_enumerate_kernel_ips(context, kernel.as_ptr(), ptr::null_mut()), -1);
+    assert_eq!(dpc_addr2line_enumerate_kernel_ips(
+        context, kernel.as_ptr(), 0xffff8000fff80000, 81152, ptr::null_mut()), -1);
     assert!(last_error_text().contains("was null"));
 
     dpc_addr2line_context_free(context);
@@ -131,7 +135,8 @@ fn unknown_kernel_returns_no_addresses_with_descriptive_error() {
         len: 0,
     };
 
-    let status = dpc_addr2line_enumerate_kernel_ips(context, kernel.as_ptr(), &mut addresses);
+    let status = dpc_addr2line_enumerate_kernel_ips(
+        context, kernel.as_ptr(), 0xffff8000fff80000, 81152, &mut addresses);
 
     assert_eq!(status, 0);
     assert_eq!(addresses.len, 0);
@@ -149,7 +154,8 @@ fn invalid_utf8_kernel_name_is_rejected() {
         len: 0,
     };
 
-    let status = dpc_addr2line_enumerate_kernel_ips(context, kernel.as_ptr(), &mut addresses);
+    let status = dpc_addr2line_enumerate_kernel_ips(
+        context, kernel.as_ptr(), 0xffff8000fff80000, 81152, &mut addresses);
 
     assert_eq!(status, -1);
     assert!(last_error_text().contains("kernel name was not valid UTF-8"));

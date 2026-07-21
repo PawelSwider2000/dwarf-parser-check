@@ -35,6 +35,22 @@ std::string join_adapter_names(const std::vector<std::string>& names) {
   return stream.str();
 }
 
+void write_csv_field(std::string_view value, std::ostream& output) {
+  if (value.find_first_of(",\"\r\n") == std::string_view::npos) {
+    output << value;
+    return;
+  }
+
+  output << '"';
+  for (const char character : value) {
+    if (character == '"') {
+      output << '"';
+    }
+    output << character;
+  }
+  output << '"';
+}
+
 void print_location(const SourceLocation& location, std::ostream& output) {
   output << "  - 0x" << std::hex << location.location.ip << std::dec << " -> "
          << location.location.file;
@@ -129,6 +145,15 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
+    if (argument == "--output-csv") {
+      const auto value = require_value(argument);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      options.output_csv = std::filesystem::path(*value);
+      continue;
+    }
+
     if (argument == "--adapters") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
@@ -162,6 +187,7 @@ void print_usage(std::ostream& output, const char* program_name) {
          << "  --all-ips             Resolve all available IPs\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional VTune reference file\n"
+         << "  --output-csv <PATH>   Write resolved locations as CSV\n"
          << "  --help, -h            Show this help message\n";
 }
 
@@ -188,6 +214,22 @@ void print_report(const ResolveReport& report, std::ostream& output) {
 
   for (const std::string& diagnostic : report.diagnostics) {
     output << "diagnostic: " << diagnostic << '\n';
+  }
+}
+
+void write_report_csv(const ResolveReport& report, std::ostream& output) {
+  output << "Kernel Offset,Source File,Source Line\n";
+  for (const KernelResolution& resolution : report.resolutions) {
+    for (const SourceLocation& source_location : resolution.locations) {
+      const Location& location = source_location.location;
+      output << "0x" << std::hex << location.ip << std::dec << ',';
+      write_csv_field(location.file, output);
+      output << ',';
+      if (location.line.has_value()) {
+        output << *location.line;
+      }
+      output << '\n';
+    }
   }
 }
 

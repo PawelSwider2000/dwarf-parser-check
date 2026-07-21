@@ -7,7 +7,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DPC_ENABLE_WARNINGS "Enable compiler warnings" ON)
-option(DPC_ENABLE_DUMMY_ADAPTER "Build the synthetic dummy adapter" ON)
 option(DPC_ENABLE_GIMLI_ADAPTER "Build the Rust gimli/addr2line adapter" ON)
 
 find_program(CARGO_EXECUTABLE cargo
@@ -24,39 +23,29 @@ if(DPC_ENABLE_GIMLI_ADAPTER)
   endif()
 endif()
 
-set(DPC_SOURCES
-  src/main.cpp
+set(DPC_LIBRARY_SOURCES
   src/cli.cpp
   src/core.cpp
   src/compare.cpp
+  src/kernel_debug_manifest.cpp
 )
 
-if(DPC_ENABLE_DUMMY_ADAPTER)
-  list(APPEND DPC_SOURCES
-    src/adapters/dummy_adapter.cpp
-  )
-endif()
-
 if(DPC_CAN_BUILD_GIMLI_ADAPTER)
-  list(APPEND DPC_SOURCES
+  list(APPEND DPC_LIBRARY_SOURCES
     src/adapters/gimli/rust_gimli_adapter.cpp
   )
 endif()
 
-add_executable(dwarf-parser-check ${DPC_SOURCES})
+add_library(dwarf_parser_check_lib STATIC ${DPC_LIBRARY_SOURCES})
 
-target_include_directories(dwarf-parser-check
-  PRIVATE
+target_include_directories(dwarf_parser_check_lib
+  PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-if(DPC_ENABLE_DUMMY_ADAPTER)
-  target_compile_definitions(dwarf-parser-check PRIVATE DPC_HAVE_DUMMY_ADAPTER=1)
-endif()
-
 if(DPC_CAN_BUILD_GIMLI_ADAPTER)
-  target_compile_definitions(dwarf-parser-check PRIVATE DPC_HAVE_RUST_GIMLI_ADAPTER=1)
+  target_compile_definitions(dwarf_parser_check_lib PRIVATE DPC_HAVE_RUST_GIMLI_ADAPTER=1)
 endif()
 
 if(DPC_CAN_BUILD_GIMLI_ADAPTER)
@@ -93,7 +82,7 @@ if(DPC_CAN_BUILD_GIMLI_ADAPTER)
   )
   add_dependencies(dpc_addr2line_rust dpc_addr2line_rust_build)
 
-  target_link_libraries(dwarf-parser-check PRIVATE
+  target_link_libraries(dwarf_parser_check_lib PRIVATE
     dpc_addr2line_rust
     Threads::Threads
     ${CMAKE_DL_LIBS}
@@ -103,14 +92,20 @@ endif()
 
 if(DPC_ENABLE_WARNINGS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(dwarf-parser-check PRIVATE
+    target_compile_options(dwarf_parser_check_lib PRIVATE
       -Wall
       -Wextra
       -Wpedantic
     )
   elseif(MSVC)
-    target_compile_options(dwarf-parser-check PRIVATE /W4)
+    target_compile_options(dwarf_parser_check_lib PRIVATE /W4)
   endif()
 endif()
 
+add_executable(dwarf-parser-check src/main.cpp)
+target_link_libraries(dwarf-parser-check PRIVATE dwarf_parser_check_lib)
+
 include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()

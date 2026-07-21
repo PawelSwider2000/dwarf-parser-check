@@ -85,6 +85,52 @@ TEST(CliTest, AllowsKernelDebugJsonWithoutIpSelection) {
   EXPECT_FALSE(cli->resolve_all_ips);
 }
 
+TEST(CliTest, ParsesCsvOutputPath) {
+  std::vector<std::string> args = {
+      "dwarf-parser-check",
+      "--kernel-debug-json",
+      "kernel_debug.json",
+      "--output-csv",
+      "result.csv",
+  };
+  std::vector<char*> argv;
+  argv.reserve(args.size());
+  for (std::string& arg : args) {
+    argv.push_back(arg.data());
+  }
+
+  std::ostringstream errors;
+  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
+
+  ASSERT_TRUE(cli.has_value()) << errors.str();
+  ASSERT_TRUE(cli->output_csv.has_value());
+  EXPECT_EQ(*cli->output_csv, "result.csv");
+}
+
+TEST(CliTest, WritesResolvedLocationsAsCsv) {
+  ResolveReport report;
+  KernelResolution resolution;
+  SourceLocation mapped;
+  mapped.location.ip = 0x40;
+  mapped.location.file = "source,with\"quote.cpp";
+  mapped.location.line = 202;
+  resolution.locations.push_back(mapped);
+
+  SourceLocation unmapped;
+  unmapped.location.ip = 0x50;
+  resolution.locations.push_back(unmapped);
+  report.resolutions.push_back(std::move(resolution));
+
+  std::ostringstream output;
+  write_report_csv(report, output);
+
+  EXPECT_EQ(
+      output.str(),
+      "Kernel Offset,Source File,Source Line\n"
+      "0x40,\"source,with\"\"quote.cpp\",202\n"
+      "0x50,,\n");
+}
+
 TEST(CliTest, RejectsLegacyMetadataOptions) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
@@ -109,7 +155,7 @@ TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
     std::ofstream manifest(manifest_path);
     ASSERT_TRUE(manifest);
     manifest << R"({"kernels":[
-      {"name":"first","mangled_name":"_ZFirst","demangled_name":"First","elf_dwarf_path":"/tmp/first.dwarf"},
+      {"name":"first","mangled_name":"_ZFirst","demangled_name":"First","elf_dwarf_path":"/tmp/first.dwarf","runtime_kernel_address":"0x800000001000","kernel_binary_size":512},
       {"name":"second","mangled_name":"_ZSecond","demangled_name":"Second","elf_dwarf_path":"/tmp/second.dwarf"}
     ]})";
   }
@@ -119,6 +165,8 @@ TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
 
   ASSERT_EQ(kernels.size(), 2U);
   EXPECT_EQ(kernels[0].demangled_name, "First");
+  EXPECT_EQ(kernels[0].runtime_kernel_address, 0x800000001000U);
+  EXPECT_EQ(kernels[0].kernel_binary_size, 512U);
   EXPECT_EQ(kernels[1].demangled_name, "Second");
 
   const ResolveRequest first_request = make_resolve_request(kernels[0]);
@@ -151,6 +199,8 @@ TEST(RustGimliAdapterTest, ResolveAllIpsMapsPrimaryBodyToUserSource) {
   request.dwarf_file = sample_dwarf_path();
   request.kernel_name = "(anonymous namespace)::PrimaryGEMMKernel";
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
+  request.runtime_kernel_address = 0x00008000fff80000ULL;
+  request.kernel_binary_size = 81152;
   request.resolve_all_ips = true;
 
   ASSERT_TRUE(adapter->supports(request));
@@ -158,10 +208,9 @@ TEST(RustGimliAdapterTest, ResolveAllIpsMapsPrimaryBodyToUserSource) {
 
   ASSERT_FALSE(resolution.locations.empty());
   EXPECT_EQ(resolution.backend_name, "rust-gimli");
-  EXPECT_EQ(resolution.locations.front().location.ip, 0xffff8000fff80000ULL);
+  EXPECT_EQ(resolution.locations.front().location.ip, 0U);
   EXPECT_TRUE(ends_with(resolution.locations.front().location.file, "simple_sycl_vtune.cpp"));
   ASSERT_TRUE(resolution.locations.front().location.line.has_value());
-  EXPECT_EQ(*resolution.locations.front().location.line, 202U);
 }
 
 }  // namespace

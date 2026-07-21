@@ -20,7 +20,10 @@ Set `TOTAL_LOOPS` and `MATRIX_SIZE` to configure the workload; they default to
 VTune CLI executable and its result directory. `VTUNE_COMPUTING_TASK` selects
 the GPU task analyzed by `analyze` and defaults to `PrimaryGEMMKernel`.
 `VTUNE_REFERENCE_CSV` overrides the report output path. If a result contains
-multiple GPU binaries, `VTUNE_ZEBIN` selects the one to analyze.
+multiple GPU binaries, `VTUNE_ZEBIN` selects the one to analyze. The sample
+queries `zeKernelGetBinaryExp` for every created kernel and writes
+`kernel_binary_size` in its JSON record. The field is `null` if the query
+fails.
 
 ## Source Correlation
 
@@ -76,6 +79,7 @@ The Level Zero `zeKernelCreate` callback collects one record per created kernel:
 - raw module and kernel handle values
 - runtime kernel base address from `zexKernelGetBaseAddress`
 - module native-binary size
+- kernel binary size from `zeKernelGetBinaryExp`
 - raw ELF/DWARF module returned by `zetModuleGetDebugInfo`
 
 Each raw module is saved as `<kernel-name>.dwarf`; the JSON summary records its

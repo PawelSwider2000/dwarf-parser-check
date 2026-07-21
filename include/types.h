@@ -12,6 +12,8 @@ struct ResolveRequest {
   std::filesystem::path dwarf_file;
   std::string kernel_name;
   std::string mangled_kernel_name;
+  std::uint64_t runtime_kernel_address = 0;
+  std::size_t kernel_binary_size = 0;
   std::vector<std::uint64_t> ips;
   bool resolve_all_ips = false;
   std::optional<std::filesystem::path> reference_file;

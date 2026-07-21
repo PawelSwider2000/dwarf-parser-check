@@ -109,8 +109,15 @@ std::string BuildCollectedKernelDebugDataJson(const Config &config) {
           << "      \"kernel_handle_address\": \"" << FormatHexAddress(dbg->kernel_handle_address) << "\",\n"
           << "      \"runtime_kernel_address\": \"" << FormatHexAddress(dbg->runtime_kernel_address) << "\",\n"
          << "      \"module_debug_info_size\": " << dbg->module_debug_info_size << ",\n"
-         << "      \"module_native_binary_size\": " << dbg->module_native_binary_size << "\n"
-         << "    }";
+           << "      \"module_native_binary_size\": " << dbg->module_native_binary_size << ",\n"
+           << "      \"kernel_binary_size\": ";
+      if (dbg->kernel_binary_size_collected) {
+        json << dbg->kernel_binary_size;
+      } else {
+        json << "null";
+      }
+      json << "\n"
+           << "    }";
     if (index + 1 != kernelCount) {
       json << ",";
     }
@@ -156,6 +163,10 @@ Config ParseCommandLine(int argc, char *argv[]) {
   }
   if (argc > 3) {
     config.jsonOutputPath = argv[3];
+  }
+  if (argc > 4) {
+    Usage(argv[0]);
+    std::exit(EXIT_FAILURE);
   }
 
   if (config.totalLoops <= 0 || config.matrixSize <= 0) {

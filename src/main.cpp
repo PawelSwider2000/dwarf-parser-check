@@ -1,5 +1,7 @@
 #include <exception>
+#include <fstream>
 #include <iostream>
+#include <stdexcept>
 
 #include "cli.h"
 #include "core.h"
@@ -28,7 +30,16 @@ int main(int argc, char** argv) {
       return 1;
     }
 
+    std::ofstream csv_output;
+    if (cli->output_csv.has_value()) {
+      csv_output.open(*cli->output_csv);
+      if (!csv_output) {
+        throw std::runtime_error("unable to open CSV output file: " + cli->output_csv->string());
+      }
+    }
+
     bool resolved_any_kernel = false;
+    ResolveReport csv_report;
     for (const KernelDebugData& kernel : kernels) {
       ResolveRequest request = make_resolve_request(kernel);
       request.ips = cli->ips;
@@ -40,7 +51,14 @@ int main(int argc, char** argv) {
 
       const ResolveReport report = resolve_request(engine, request);
       print_report(report, std::cout);
+      if (csv_output) {
+        csv_report.resolutions.insert(
+            csv_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
+      }
       resolved_any_kernel = resolved_any_kernel || !report.empty();
+    }
+    if (csv_output) {
+      write_report_csv(csv_report, csv_output);
     }
     return resolved_any_kernel ? 0 : 1;
   } catch (const std::exception& error) {

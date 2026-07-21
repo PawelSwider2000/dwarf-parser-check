@@ -16,6 +16,8 @@ struct KernelDebugData {
   std::uint64_t runtime_kernel_address = 0;
   std::size_t module_debug_info_size = 0;
   std::size_t module_native_binary_size = 0;
+  bool kernel_binary_size_collected = false;
+  std::size_t kernel_binary_size = 0;
 };
 
 }  // namespace dwarf_parser_check
