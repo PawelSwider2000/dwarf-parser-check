@@ -38,8 +38,17 @@ int main(int argc, char** argv) {
       }
     }
 
+    std::ofstream json_output;
+    if (cli->output_json.has_value()) {
+      json_output.open(*cli->output_json);
+      if (!json_output) {
+        throw std::runtime_error("unable to open JSON output file: " + cli->output_json->string());
+      }
+    }
+
     bool resolved_any_kernel = false;
     ResolveReport csv_report;
+    ResolveReport output_report;
     for (const KernelDebugData& kernel : kernels) {
       ResolveRequest request = make_resolve_request(kernel);
       request.ips = cli->ips;
@@ -55,10 +64,21 @@ int main(int argc, char** argv) {
         csv_report.resolutions.insert(
             csv_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
       }
+      if (json_output) {
+        output_report.resolutions.insert(
+            output_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
+        output_report.comparisons.insert(
+            output_report.comparisons.end(), report.comparisons.begin(), report.comparisons.end());
+        output_report.diagnostics.insert(
+            output_report.diagnostics.end(), report.diagnostics.begin(), report.diagnostics.end());
+      }
       resolved_any_kernel = resolved_any_kernel || !report.empty();
     }
     if (csv_output) {
       write_report_csv(csv_report, csv_output);
+    }
+    if (json_output) {
+      write_report_json(output_report, json_output);
     }
     return resolved_any_kernel ? 0 : 1;
   } catch (const std::exception& error) {

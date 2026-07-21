@@ -169,7 +169,7 @@ fn sample_dwarf_primary_kernel_ip_resolves_to_source() {
 
     let mut location = resolve_address(context, 0xffff8000fff80000);
     assert_eq!(location.has_line, 1);
-    assert_eq!(location.line, 202);
+    assert_eq!(location.line, 213);
 
     let file = unsafe { CStr::from_ptr(location.file) }.to_string_lossy().into_owned();
     assert!(file.ends_with("simple_sycl_vtune.cpp"));

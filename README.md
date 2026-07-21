@@ -27,8 +27,9 @@ The program accepts:
 - `--ip <HEX_OR_DEC>`: instruction pointer to resolve, repeatable
 - `--all-ips`: resolve all enumerated IPs for the selected kernel
 - `--adapters <LIST>`: comma-separated adapter names or `all`
-- `--reference <PATH>`: optional reference file for comparison
+- `--reference <PATH>`: optional legacy reference, VTune `source_locations.json`, or VTune address-report CSV for comparison
 - `--output-csv <PATH>`: write resolved locations to a CSV file with `Kernel Offset`, `Source File`, and `Source Line` columns
+- `--output-json <PATH>`: write resolutions and per-adapter comparisons as JSON
 - `--help`, `-h`: show usage
 
 `--kernel-debug-json` is required. The tool resolves every kernel in the
@@ -145,6 +146,10 @@ The comparison layer checks:
 - optional column equality
 - missing entries on either side
 
+VTune may provide multiple source locations for one instruction offset. The
+comparison preserves every candidate and reports a match when the adapter
+location matches any candidate for that offset.
+
 ## Workflow Script
 
 Use the root [`dpc.sh`](dpc.sh) script for the normal workflow:
@@ -158,15 +163,20 @@ Use the root [`dpc.sh`](dpc.sh) script for the normal workflow:
 
 `clean` removes the CMake build directory. `run` rebuilds, resolves the
 configured manifest, and writes `artifacts/result_dwarf_parser.csv` by default.
+It also writes the pretty adapter-versus-VTune JSON report
+`artifacts/adapter_vtune_comparison.json`.
 It keeps individual address resolutions out of the terminal and instead prints
 the kernel count, resolved-address count, and artifact locations. The complete
-resolution data remains in the CSV output.
+resolution data remains in the CSV and JSON outputs. Set `REFERENCE_FILE` to a
+VTune `source_locations.json` path or a VTune address-report CSV to include
+per-adapter comparison results. The pretty JSON report is the canonical
+adapter-versus-VTune artifact; set `OUTPUT_JSON` to choose its path.
 When the default manifest is absent, `run` generates it through
 `data_generation/make_reference` and saves it as
 `artifacts/simple_sycl_vtune_kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
-`OUTPUT_CSV`, `ADAPTERS`, `BUILD_DIR`, or `BUILD_TYPE` to override those
-defaults. `./dpc.sh all --ip <ADDRESS>` performs the full clean, build, test,
-and run sequence.
+`OUTPUT_CSV`, `OUTPUT_JSON`, `REFERENCE_FILE`, `ADAPTERS`, `BUILD_DIR`, or
+`BUILD_TYPE` to override those defaults. `./dpc.sh all --ip <ADDRESS>`
+performs the full clean, build, test, and run sequence.
 
 ## Sample And VTune Workflow
 
@@ -181,7 +191,23 @@ reference with:
 The commands run in order. `build` compiles the sample, `run` writes
 `artifacts/simple_sycl_vtune_kernel_debug.json`, `vtune_run` collects GPU PC
 samples, and `analyze` writes `artifacts/result_vtune_reference.csv` plus
-`artifacts/vtune_source_locations/source_locations.json`.
+`artifacts/source_locations.json`. The `run` stage calls `dpc.sh` to create
+the parser CSV and JSON results; after `analyze` creates the VTune sidecar, it
+calls `dpc.sh` again to write `artifacts/adapter_vtune_comparison.json`.
+
+To rerun that final comparison without collecting VTune data again, use
+`dpc.sh` directly:
+
+```bash
+REFERENCE_FILE=artifacts/source_locations.json \
+OUTPUT_JSON=artifacts/adapter_vtune_comparison.json \
+ADAPTERS=all \
+./dpc.sh run
+```
+
+The report includes every resolution, every adapter comparison, and
+diagnostics. A comparison item is `match`, `file_mismatch`, `line_mismatch`,
+`column_mismatch`, `missing_in_reference`, or `missing_in_backend`.
 
 The manifest records each created kernel's names, Level Zero handles, runtime
 base address, module binary size, kernel binary size, and saved ELF/DWARF path.

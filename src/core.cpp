@@ -193,17 +193,11 @@ ResolveReport resolve_request(
     const ResolveRequest& request) {
   ResolveReport report = engine.resolve(request);
 
-  if (request.reference_file.has_value() && !report.resolutions.empty()) {
-    const auto selected = std::find_if(
-        report.resolutions.begin(),
-        report.resolutions.end(),
-        [](const KernelResolution& resolution) {
-          return !resolution.locations.empty();
-        });
-
-    if (selected != report.resolutions.end()) {
-      const std::vector<Location> references = load_reference_locations(*request.reference_file, request.kernel_name);
-      report.comparison = compare_locations(*selected, references);
+  if (request.reference_file.has_value()) {
+    const std::vector<Location> references =
+        load_reference_locations(*request.reference_file, request.kernel_name);
+    for (const KernelResolution& resolution : report.resolutions) {
+      report.comparisons.push_back(compare_locations(resolution, references));
     }
   }
 

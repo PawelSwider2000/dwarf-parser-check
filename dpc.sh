@@ -8,6 +8,8 @@ CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 DEFAULT_KERNEL_DEBUG_JSON="$SCRIPT_DIR/artifacts/simple_sycl_vtune_kernel_debug.json"
 KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-"$DEFAULT_KERNEL_DEBUG_JSON"}
 OUTPUT_CSV=${OUTPUT_CSV:-"$SCRIPT_DIR/artifacts/result_dwarf_parser.csv"}
+OUTPUT_JSON=${OUTPUT_JSON:-"$SCRIPT_DIR/artifacts/adapter_vtune_comparison.json"}
+REFERENCE_FILE=${REFERENCE_FILE:-"$SCRIPT_DIR/artifacts/result_vtune_reference.csv"}
 ADAPTERS=${ADAPTERS:-rust-gimli}
 
 log() {
@@ -31,6 +33,8 @@ Environment:
   CMAKE_GENERATOR    CMake generator (default: Ninja)
   KERNEL_DEBUG_JSON  Kernel debug manifest for run (default: artifacts/simple_sycl_vtune_kernel_debug.json)
   OUTPUT_CSV         CSV output path for run (default: artifacts/result_dwarf_parser.csv)
+  OUTPUT_JSON        Pretty JSON comparison report (default: artifacts/adapter_vtune_comparison.json)
+  REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV
   ADAPTERS           Adapter selection for run (default: rust-gimli)
 
 Examples:
@@ -80,10 +84,22 @@ run() {
   ensure_kernel_debug_json
 
   mkdir -p "$(dirname "$OUTPUT_CSV")"
-  "$BUILD_DIR/dwarf-parser-check" \
-    --kernel-debug-json "$KERNEL_DEBUG_JSON" \
-    --adapters "$ADAPTERS" \
-    --output-csv "$OUTPUT_CSV" \
+  mkdir -p "$(dirname "$OUTPUT_JSON")"
+  local resolver_args=(
+    --kernel-debug-json "$KERNEL_DEBUG_JSON"
+    --adapters "$ADAPTERS"
+    --output-csv "$OUTPUT_CSV"
+    --output-json "$OUTPUT_JSON"
+  )
+  if [[ -n "$REFERENCE_FILE" ]]; then
+    if [[ ! -f "$REFERENCE_FILE" ]]; then
+      echo "reference file not found: $REFERENCE_FILE" >&2
+      return 1
+    fi
+    resolver_args+=(--reference "$REFERENCE_FILE")
+  fi
+
+  "$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" \
     "$@" \
     >/dev/null
 
@@ -95,6 +111,10 @@ run() {
   log "run: kernel metadata JSON: $KERNEL_DEBUG_JSON ($kernel_count kernel(s))"
   log "run: resolved $resolved_address_count address(es) with $ADAPTERS"
   log "run: CSV saved to $OUTPUT_CSV"
+  log "run: adapter/VTune comparison JSON saved to $OUTPUT_JSON"
+  if [[ -n "$REFERENCE_FILE" ]]; then
+    log "run: compared with reference $REFERENCE_FILE"
+  fi
 }
 
 if [[ $# -eq 0 ]]; then

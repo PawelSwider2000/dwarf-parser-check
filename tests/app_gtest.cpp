@@ -1,5 +1,6 @@
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -22,6 +23,31 @@ std::filesystem::path sample_dwarf_path() {
 bool ends_with(std::string_view text, std::string_view suffix) {
   return text.size() >= suffix.size() && text.substr(text.size() - suffix.size()) == suffix;
 }
+
+class FixedResolutionAdapter final : public DwarfAdapter {
+ public:
+  explicit FixedResolutionAdapter(std::string backend_name) : backend_name_(std::move(backend_name)) {}
+
+  std::string name() const override { return backend_name_; }
+
+  bool supports(const ResolveRequest&) const override { return true; }
+
+  KernelResolution resolve_kernel(const ResolveRequest& request) const override {
+    KernelResolution resolution;
+    resolution.backend_name = backend_name_;
+    resolution.kernel_name = request.kernel_name;
+    SourceLocation location;
+    location.location.kernel_name = request.kernel_name;
+    location.location.ip = 0x40;
+    location.location.file = "source.cpp";
+    location.location.line = 10;
+    resolution.locations.push_back(std::move(location));
+    return resolution;
+  }
+
+ private:
+  std::string backend_name_;
+};
 
 TEST(CliTest, ParsesAllIpsJsonRequest) {
   std::vector<std::string> args = {
@@ -107,6 +133,27 @@ TEST(CliTest, ParsesCsvOutputPath) {
   EXPECT_EQ(*cli->output_csv, "result.csv");
 }
 
+TEST(CliTest, ParsesJsonOutputPath) {
+  std::vector<std::string> args = {
+      "dwarf-parser-check",
+      "--kernel-debug-json",
+      "kernel_debug.json",
+      "--output-json",
+      "result.json",
+  };
+  std::vector<char*> argv;
+  for (std::string& arg : args) {
+    argv.push_back(arg.data());
+  }
+
+  std::ostringstream errors;
+  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
+
+  ASSERT_TRUE(cli.has_value()) << errors.str();
+  ASSERT_TRUE(cli->output_json.has_value());
+  EXPECT_EQ(*cli->output_json, "result.json");
+}
+
 TEST(CliTest, WritesResolvedLocationsAsCsv) {
   ResolveReport report;
   KernelResolution resolution;
@@ -129,6 +176,41 @@ TEST(CliTest, WritesResolvedLocationsAsCsv) {
       "Kernel Offset,Source File,Source Line\n"
       "0x40,\"source,with\"\"quote.cpp\",202\n"
       "0x50,,\n");
+}
+
+TEST(CliTest, WritesComparisonReportAsJson) {
+  ResolveReport report;
+  KernelResolution resolution;
+  resolution.backend_name = "test-adapter";
+  resolution.kernel_name = "test-kernel";
+  SourceLocation location;
+  location.location.kernel_name = "test-kernel";
+  location.location.ip = 0x40;
+  location.location.file = "source\"file.cpp";
+  location.location.line = 10;
+  resolution.locations.push_back(location);
+  report.resolutions.push_back(resolution);
+
+  ComparisonReport comparison;
+  comparison.backend_name = "test-adapter";
+  comparison.kernel_name = "test-kernel";
+  ComparisonItem item;
+  item.resolved = location;
+  item.status = ComparisonStatus::kMissingInReference;
+  item.notes.push_back("missing reference");
+  comparison.items.push_back(std::move(item));
+  report.comparisons.push_back(std::move(comparison));
+
+  std::ostringstream output;
+  write_report_json(report, output);
+
+  EXPECT_NE(output.str().find("\"schema_version\": 2"), std::string::npos);
+  EXPECT_EQ(output.str().find("\"resolutions\""), std::string::npos);
+  EXPECT_EQ(output.str().find("\"reference_candidates\""), std::string::npos);
+  EXPECT_NE(output.str().find("\n      \"backend\": \"test-adapter\""), std::string::npos);
+  EXPECT_NE(output.str().find("\"summary\": {"), std::string::npos);
+  EXPECT_NE(output.str().find("source\\\"file.cpp"), std::string::npos);
+  EXPECT_NE(output.str().find("\"missing_in_reference\""), std::string::npos);
 }
 
 TEST(CliTest, RejectsLegacyMetadataOptions) {
@@ -181,6 +263,62 @@ TEST(CoreTest, CreateAdaptersTrimsWhitespace) {
   ASSERT_EQ(adapters.size(), 1U);
   ASSERT_NE(adapters[0], nullptr);
   EXPECT_EQ(adapters[0]->name(), "rust-gimli");
+}
+
+TEST(CoreTest, ComparesEverySelectedAdapterAgainstVtuneJson) {
+  const std::filesystem::path reference_path =
+      std::filesystem::temp_directory_path() / "dwarf_parser_check_vtune_reference.json";
+  {
+    std::ofstream reference(reference_path);
+    ASSERT_TRUE(reference);
+    reference << R"({"0x40":[["generated.cpp",20],["source.cpp",10]]})";
+  }
+
+  std::vector<DwarfAdapterPtr> adapters;
+  adapters.push_back(std::make_unique<FixedResolutionAdapter>("first"));
+  adapters.push_back(std::make_unique<FixedResolutionAdapter>("second"));
+  const ResolverEngine engine(make_registry(std::move(adapters)));
+
+  ResolveRequest request;
+  request.kernel_name = "test-kernel";
+  request.reference_file = reference_path;
+  const ResolveReport report = resolve_request(engine, request);
+  std::filesystem::remove(reference_path);
+
+  ASSERT_EQ(report.comparisons.size(), 2U);
+  EXPECT_EQ(report.comparisons[0].backend_name, "first");
+  EXPECT_EQ(report.comparisons[1].backend_name, "second");
+  EXPECT_FALSE(report.comparisons[0].has_mismatches());
+  EXPECT_FALSE(report.comparisons[1].has_mismatches());
+  ASSERT_EQ(report.comparisons[0].items.size(), 1U);
+  EXPECT_NE(
+      report.comparisons[0].items[0].notes.end(),
+      std::find(
+          report.comparisons[0].items[0].notes.begin(),
+          report.comparisons[0].items[0].notes.end(),
+          "reference contains multiple source locations for this offset"));
+}
+
+TEST(ComparisonTest, LoadsEveryMappedVtuneCsvRow) {
+  const std::filesystem::path reference_path =
+      std::filesystem::temp_directory_path() / "dwarf_parser_check_vtune_reference.csv";
+  {
+    std::ofstream reference(reference_path);
+    ASSERT_TRUE(reference);
+    reference << "Address,Source File,Source Line,Assembly\n"
+              << "0x40,,,Block 1:\n"
+              << "0x40,source.cpp,10,\"mov r1, r2\"\n"
+              << "0x50,other.cpp,20,nop\n";
+  }
+
+  const std::vector<Location> locations = load_reference_locations(reference_path, "test-kernel");
+  std::filesystem::remove(reference_path);
+
+  ASSERT_EQ(locations.size(), 2U);
+  EXPECT_EQ(locations[0].ip, 0x40U);
+  EXPECT_EQ(locations[0].file, "source.cpp");
+  EXPECT_EQ(locations[1].ip, 0x50U);
+  EXPECT_EQ(locations[1].line, 20U);
 }
 
 TEST(CliTest, PrintUsageListsCompiledAdapters) {

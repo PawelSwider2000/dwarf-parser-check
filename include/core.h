@@ -13,7 +13,7 @@ namespace dwarf_parser_check {
 
 struct ResolveReport {
   std::vector<KernelResolution> resolutions;
-  std::optional<ComparisonReport> comparison;
+  std::vector<ComparisonReport> comparisons;
   std::vector<std::string> diagnostics;
 
   [[nodiscard]] bool empty() const noexcept {

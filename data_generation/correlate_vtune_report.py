@@ -55,7 +55,7 @@ def find_zebin(result_dir: Path, explicit_zebin: Path | None) -> Path:
     return zebins[0]
 
 
-def kernel_text_translation(readelf: str, zebin: Path) -> tuple[int, int]:
+def kernel_text_address(readelf: str, zebin: Path) -> int:
     sections = run_readelf(readelf, "-SW", str(zebin))
     candidates = []
     for line in sections.splitlines():
@@ -64,7 +64,7 @@ def kernel_text_translation(readelf: str, zebin: Path) -> tuple[int, int]:
             continue
         name, address, offset, flags = match.groups()
         if name.startswith(".text.") and "X" in flags and "Intel_Symbol_Table" not in name:
-            candidates.append((int(offset, 16), int(address, 16)))
+            candidates.append(int(address, 16))
 
     if len(candidates) != 1:
         raise ValueError(
@@ -142,7 +142,6 @@ def decoded_lines(
 def correlate(
     input_csv: Path,
     output_csv: Path,
-    text_offset: int,
     text_address: int,
     line_addresses: list[int],
     line_locations: list[tuple[str, int] | None],
@@ -167,7 +166,7 @@ def correlate(
             assembly = row.get("Assembly", "")
             if assembly and not assembly.startswith("Block ") and assembly != "illegal":
                 instruction_count += 1
-                dwarf_address = int(row["Address"], 16) - text_offset + text_address
+                dwarf_address = int(row["Address"], 16) + text_address
                 index = bisect.bisect_right(line_addresses, dwarf_address) - 1
                 location = line_locations[index] if index >= 0 else None
                 if location is not None:
@@ -204,7 +203,6 @@ def write_user_source_locations(
     report_csv: Path,
     output_json: Path,
     user_source_root: Path,
-    text_offset: int,
     text_address: int,
     functions: list[tuple[int, int]],
 ) -> tuple[int, int]:
@@ -214,7 +212,7 @@ def write_user_source_locations(
     function_starts = [begin for begin, _end in functions]
 
     def dwarf_address(row: dict[str, str]) -> int:
-        return int(row["Address"], 16) - text_offset + text_address
+        return int(row["Address"], 16) + text_address
 
     def containing_function(address: int) -> int | None:
         index = bisect.bisect_right(function_starts, address) - 1
@@ -319,13 +317,12 @@ def main() -> int:
 
     try:
         zebin = find_zebin(arguments.result_dir, arguments.zebin)
-        text_offset, text_address = kernel_text_translation(arguments.readelf, zebin)
+        text_address = kernel_text_address(arguments.readelf, zebin)
         comp_dir = compilation_directory(arguments.readelf, zebin)
         line_addresses, line_locations = decoded_lines(arguments.readelf, zebin, comp_dir)
         mapped, instruction_count = correlate(
             arguments.input,
             arguments.output,
-            text_offset,
             text_address,
             line_addresses,
             line_locations,
@@ -336,7 +333,6 @@ def main() -> int:
             arguments.output,
             arguments.source_locations_output,
             user_source_root,
-            text_offset,
             text_address,
             functions,
         )

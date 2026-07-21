@@ -81,6 +81,90 @@ void print_location(const SourceLocation& location, std::ostream& output) {
   }
 }
 
+std::string json_escape(std::string_view value) {
+  std::ostringstream escaped;
+  for (const char character : value) {
+    switch (character) {
+      case '\\': escaped << "\\\\"; break;
+      case '"': escaped << "\\\""; break;
+      case '\b': escaped << "\\b"; break;
+      case '\f': escaped << "\\f"; break;
+      case '\n': escaped << "\\n"; break;
+      case '\r': escaped << "\\r"; break;
+      case '\t': escaped << "\\t"; break;
+      default:
+        if (static_cast<unsigned char>(character) < 0x20U) {
+          escaped << "\\u00" << std::hex << std::setw(2) << std::setfill('0')
+                  << static_cast<unsigned int>(static_cast<unsigned char>(character))
+                  << std::dec << std::setfill(' ');
+        } else {
+          escaped << character;
+        }
+    }
+  }
+  return escaped.str();
+}
+
+std::string format_hex(std::uint64_t value) {
+  std::ostringstream formatted;
+  formatted << "0x" << std::hex << value;
+  return formatted.str();
+}
+
+const char* comparison_status_name(ComparisonStatus status) {
+  switch (status) {
+    case ComparisonStatus::kMatch: return "match";
+    case ComparisonStatus::kFileMismatch: return "file_mismatch";
+    case ComparisonStatus::kLineMismatch: return "line_mismatch";
+    case ComparisonStatus::kColumnMismatch: return "column_mismatch";
+    case ComparisonStatus::kMissingInReference: return "missing_in_reference";
+    case ComparisonStatus::kMissingInBackend: return "missing_in_backend";
+  }
+  return "unknown";
+}
+
+void write_json_string_array(
+    const std::vector<std::string>& values,
+    std::ostream& output,
+    std::size_t indent) {
+  if (values.empty()) {
+    output << "[]";
+    return;
+  }
+
+  output << "[\n";
+  const std::string value_indent(indent + 2U, ' ');
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    output << value_indent << '"' << json_escape(values[index]) << '"';
+    output << (index + 1U == values.size() ? '\n' : ',') << '\n';
+  }
+  output << std::string(indent, ' ') << ']';
+}
+
+void write_location_json(
+    const Location& location,
+    std::ostream& output,
+    std::size_t indent) {
+  const std::string field_indent(indent + 2U, ' ');
+  output << "{\n"
+         << field_indent << "\"kernel\": \"" << json_escape(location.kernel_name) << "\",\n"
+         << field_indent << "\"offset\": \"" << format_hex(location.ip) << "\",\n"
+         << field_indent << "\"file\": \"" << json_escape(location.file) << "\",\n"
+         << field_indent << "\"line\": ";
+  if (location.line.has_value()) {
+    output << *location.line;
+  } else {
+    output << "null";
+  }
+  output << ",\n" << field_indent << "\"column\": ";
+  if (location.column.has_value()) {
+    output << *location.column;
+  } else {
+    output << "null";
+  }
+  output << '\n' << std::string(indent, ' ') << '}';
+}
+
 }  // namespace
 
 std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_stream) {
@@ -154,6 +238,15 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
+    if (argument == "--output-json") {
+      const auto value = require_value(argument);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      options.output_json = std::filesystem::path(*value);
+      continue;
+    }
+
     if (argument == "--adapters") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
@@ -186,8 +279,9 @@ void print_usage(std::ostream& output, const char* program_name) {
          << "  --ip <HEX_OR_DEC>     Instruction pointer to resolve, repeatable\n"
          << "  --all-ips             Resolve all available IPs\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
-         << "  --reference <PATH>    Optional VTune reference file\n"
+         << "  --reference <PATH>    Optional reference or VTune source-locations JSON\n"
          << "  --output-csv <PATH>   Write resolved locations as CSV\n"
+         << "  --output-json <PATH>  Write resolutions and comparisons as JSON\n"
          << "  --help, -h            Show this help message\n";
 }
 
@@ -207,9 +301,10 @@ void print_report(const ResolveReport& report, std::ostream& output) {
     output << '\n';
   }
 
-  if (report.comparison.has_value()) {
-    output << "comparison: " << report.comparison->mismatch_count() << " mismatch(es)";
-    output << (report.comparison->has_mismatches() ? " found" : ", all matched") << '\n';
+  for (const ComparisonReport& comparison : report.comparisons) {
+    output << "comparison (" << comparison.backend_name << ", " << comparison.kernel_name
+           << "): " << comparison.mismatch_count() << " mismatch(es)";
+    output << (comparison.has_mismatches() ? " found" : ", all matched") << '\n';
   }
 
   for (const std::string& diagnostic : report.diagnostics) {
@@ -231,6 +326,61 @@ void write_report_csv(const ResolveReport& report, std::ostream& output) {
       output << '\n';
     }
   }
+}
+
+void write_report_json(const ResolveReport& report, std::ostream& output) {
+  output << "{\n  \"schema_version\": 2,\n  \"comparisons\": [\n";
+  for (std::size_t comparison_index = 0; comparison_index < report.comparisons.size(); ++comparison_index) {
+    const ComparisonReport& comparison = report.comparisons[comparison_index];
+    std::size_t status_counts[6] = {};
+    for (const ComparisonItem& item : comparison.items) {
+      ++status_counts[static_cast<std::size_t>(item.status)];
+    }
+    output << "    {\n"
+           << "      \"backend\": \"" << json_escape(comparison.backend_name) << "\",\n"
+           << "      \"kernel\": \"" << json_escape(comparison.kernel_name) << "\",\n"
+           << "      \"mismatch_count\": " << comparison.mismatch_count() << ",\n"
+           << "      \"summary\": {\n"
+           << "        \"compared_offsets\": " << comparison.items.size() << ",\n"
+           << "        \"matches\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kMatch)] << ",\n"
+           << "        \"file_mismatches\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kFileMismatch)] << ",\n"
+           << "        \"line_mismatches\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kLineMismatch)] << ",\n"
+           << "        \"column_mismatches\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kColumnMismatch)] << ",\n"
+           << "        \"missing_in_reference\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kMissingInReference)] << ",\n"
+           << "        \"missing_in_backend\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kMissingInBackend)] << "\n"
+           << "      },\n"
+           << "      \"items\": [";
+    if (!comparison.items.empty()) {
+      output << '\n';
+    }
+    for (std::size_t item_index = 0; item_index < comparison.items.size(); ++item_index) {
+      const ComparisonItem& item = comparison.items[item_index];
+      output << "        {\n"
+             << "          \"status\": \"" << comparison_status_name(item.status) << "\",\n"
+             << "          \"resolved\": ";
+      if (item.resolved.has_value()) {
+        write_location_json(item.resolved->location, output, 10U);
+      } else {
+        output << "null";
+      }
+      output << ",\n          \"reference\": ";
+      if (item.reference.has_value()) {
+        write_location_json(*item.reference, output, 10U);
+      } else {
+        output << "null";
+      }
+      output << ",\n          \"notes\": ";
+      write_json_string_array(item.notes, output, 10U);
+      output << "\n        }";
+      output << (item_index + 1U == comparison.items.size() ? '\n' : ',') << '\n';
+    }
+    output << "      ]\n    }";
+    if (comparison_index + 1U != report.comparisons.size()) output << ',';
+    output << '\n';
+  }
+  output << "  ],\n  \"diagnostics\": ";
+  write_json_string_array(report.diagnostics, output, 2U);
+  output << "\n}\n";
 }
 
 }  // namespace dwarf_parser_check

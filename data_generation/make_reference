@@ -5,7 +5,11 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/../artifacts"}
 BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
 JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
-PARSER_BIN=${PARSER_BIN:-"$SCRIPT_DIR/../build/dwarf-parser-check"}
+DPC_SCRIPT=${DPC_SCRIPT:-"$SCRIPT_DIR/../dpc.sh"}
+ADAPTERS=${ADAPTERS:-rust-gimli}
+PARSER_OUTPUT_CSV=${PARSER_OUTPUT_CSV:-"$ARTIFACT_DIR/result_dwarf_parser.csv"}
+PARSER_OUTPUT_JSON=${PARSER_OUTPUT_JSON:-"$ARTIFACT_DIR/result_dwarf_parser.json"}
+ADAPTER_VTUNE_COMPARISON_JSON=${ADAPTER_VTUNE_COMPARISON_JSON:-"$ARTIFACT_DIR/adapter_vtune_comparison.json"}
 TOTAL_LOOPS=${TOTAL_LOOPS:-1}
 MATRIX_SIZE=${MATRIX_SIZE:-1024}
 VTUNE_BIN=${VTUNE_BIN:-vtune}
@@ -13,6 +17,7 @@ VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-"$ARTIFACT_DIR/vtune_pc_sampling"}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
 VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-"$ARTIFACT_DIR/result_vtune_reference.csv"}
 VTUNE_SOURCE_LOCATIONS_JSON=${VTUNE_SOURCE_LOCATIONS_JSON:-"$ARTIFACT_DIR/source_locations.json"}
+VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 USER_SOURCE_ROOT=${USER_SOURCE_ROOT:-"$SCRIPT_DIR"}
 VTUNE_ZEBIN=${VTUNE_ZEBIN:-}
 READELF_BIN=${READELF_BIN:-readelf}
@@ -35,7 +40,12 @@ Configuration is provided through environment variables:
   TOTAL_LOOPS       Sample loop count (default: 1)
   MATRIX_SIZE       Sample matrix dimension (default: 128)
   ARTIFACT_DIR      Generated-artifact directory
-  PARSER_BIN        dwarf-parser-check executable
+  DPC_SCRIPT        dpc.sh script used to run dwarf-parser-check
+  ADAPTERS          Adapter selection used by dpc.sh (default: rust-gimli)
+  PARSER_OUTPUT_CSV CSV output path for parser resolutions
+  PARSER_OUTPUT_JSON JSON output path for parser resolutions
+  ADAPTER_VTUNE_COMPARISON_JSON
+                      JSON output path for adapter-versus-VTune comparison
   VTUNE_BIN         VTune CLI executable (default: vtune)
   VTUNE_RESULT_DIR  VTune result directory
   VTUNE_COMPUTING_TASK
@@ -44,6 +54,7 @@ Configuration is provided through environment variables:
                       Output CSV path (default: artifacts/result_vtune_reference.csv)
   VTUNE_SOURCE_LOCATIONS_JSON
                       Per-IP highest user locations JSON output path
+  VTUNE_TARGET_GPU  Comma-separated PCI GPU adapter IDs to profile
   USER_SOURCE_ROOT    Root directory used to identify user source files
   VTUNE_ZEBIN        GPU binary to use when the result contains multiple .zebin files
   READELF_BIN        readelf executable used for DWARF line decoding
@@ -81,12 +92,12 @@ run() {
 
   log "run: json: $JSON_PATH"
 
-  if [[ -x "$PARSER_BIN" ]]; then
-    log "run: resolving kernel debug metadata with $PARSER_BIN"
-    "$PARSER_BIN" --kernel-debug-json "$JSON_PATH" --adapters rust-gimli
-  else
-    echo "parser not found or not executable: $PARSER_BIN" >&2
-  fi
+  log "run: resolving kernel debug metadata through $DPC_SCRIPT"
+  KERNEL_DEBUG_JSON="$JSON_PATH" \
+  OUTPUT_CSV="$PARSER_OUTPUT_CSV" \
+  OUTPUT_JSON="$PARSER_OUTPUT_JSON" \
+  ADAPTERS="$ADAPTERS" \
+  bash "$DPC_SCRIPT" run
 }
 
 vtune_run() {
@@ -96,18 +107,30 @@ vtune_run() {
     return 1
   fi
 
+  local ptrace_scope_file=/proc/sys/kernel/yama/ptrace_scope
+  if [[ -r "$ptrace_scope_file" ]] && [[ $(<"$ptrace_scope_file") != 0 ]]; then
+    echo "VTune profiling requires unrestricted ptrace access. Run: sudo sysctl -w kernel.yama.ptrace_scope=0" >&2
+    return 1
+  fi
+
   mkdir -p "$ARTIFACT_DIR"
   if [[ -e "$VTUNE_RESULT_DIR" ]]; then
     log "vtune_run: removing previous result: $VTUNE_RESULT_DIR"
     rm -rf "$VTUNE_RESULT_DIR"
   fi
 
-  "$VTUNE_BIN" \
+  local vtune_args=(
     -collect gpu-hotspots \
     -knob gpu-profiling-mode=source-analysis \
     -knob source-analysis=stall-sampling \
     -result-dir "$VTUNE_RESULT_DIR" \
-    -- "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH"
+  )
+  if [[ -n "$VTUNE_TARGET_GPU" ]]; then
+    vtune_args+=(-knob "target-gpu=$VTUNE_TARGET_GPU")
+  fi
+  vtune_args+=(-- "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH")
+
+  "$VTUNE_BIN" "${vtune_args[@]}"
 
   log "vtune_run: VTune result: $VTUNE_RESULT_DIR"
 }
@@ -151,6 +174,13 @@ analyze() {
 
   log "analyze: CSV report: $VTUNE_REFERENCE_CSV"
   log "analyze: user source locations: $VTUNE_SOURCE_LOCATIONS_JSON"
+  log "analyze: comparing adapters with VTune source locations through $DPC_SCRIPT"
+  KERNEL_DEBUG_JSON="$JSON_PATH" \
+  OUTPUT_CSV="$PARSER_OUTPUT_CSV" \
+  OUTPUT_JSON="$ADAPTER_VTUNE_COMPARISON_JSON" \
+  REFERENCE_FILE="$VTUNE_SOURCE_LOCATIONS_JSON" \
+  ADAPTERS="$ADAPTERS" \
+  bash "$DPC_SCRIPT" run
 }
 
 if [[ $# -eq 0 ]]; then

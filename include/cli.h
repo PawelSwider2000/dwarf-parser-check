@@ -17,6 +17,7 @@ struct CliOptions {
   bool resolve_all_ips = false;
   std::optional<std::filesystem::path> reference_file;
   std::optional<std::filesystem::path> output_csv;
+  std::optional<std::filesystem::path> output_json;
   std::string adapter_selection = "all";
   bool show_help = false;
 };
@@ -31,5 +32,7 @@ void print_usage(std::ostream& output, const char* program_name);
 void print_report(const ResolveReport& report, std::ostream& output);
 
 void write_report_csv(const ResolveReport& report, std::ostream& output);
+
+void write_report_json(const ResolveReport& report, std::ostream& output);
 
 }  // namespace dwarf_parser_check
