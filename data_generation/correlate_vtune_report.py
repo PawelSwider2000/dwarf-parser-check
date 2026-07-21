@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 
-LINE_ROW = re.compile(r"^(.+?)\s+(\d+|-)\s+((?:0x)?[0-9a-fA-F]+)\s+")
+LINE_ROW = re.compile(r"^(.+?)\s+(\d+|-)\s+((?:0x)?[0-9a-fA-F]+)(?:\s+|$)")
 COMP_DIR = re.compile(r"DW_AT_comp_dir\s+:\s+(?:\([^)]*\)\s+)?(.+)$")
 SECTION_ROW = re.compile(
     r"^\s*\[\s*\d+\]\s+(\S+)\s+\S+\s+([0-9a-fA-F]+)\s+"
