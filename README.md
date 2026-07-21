@@ -153,7 +153,7 @@ Use the root [`dpc.sh`](dpc.sh) script for the normal workflow:
 ./dpc.sh clean
 ./dpc.sh build
 ./dpc.sh test
-./dpc.sh run --ip 0xffff8000fff80000
+./dpc.sh run
 ```
 
 `clean` removes the CMake build directory. `run` rebuilds, resolves the
@@ -167,6 +167,34 @@ When the default manifest is absent, `run` generates it through
 `OUTPUT_CSV`, `ADAPTERS`, `BUILD_DIR`, or `BUILD_TYPE` to override those
 defaults. `./dpc.sh all --ip <ADDRESS>` performs the full clean, build, test,
 and run sequence.
+
+## Sample And VTune Workflow
+
+The SYCL GEMM sample and its collection workflow live in
+`data_generation/`. Generate the sample metadata and an optional VTune
+reference with:
+
+```bash
+./data_generation/make_reference build run vtune_run analyze
+```
+
+The commands run in order. `build` compiles the sample, `run` writes
+`artifacts/simple_sycl_vtune_kernel_debug.json`, `vtune_run` collects GPU PC
+samples, and `analyze` writes `artifacts/result_vtune_reference.csv` plus
+`artifacts/vtune_source_locations/source_locations.json`.
+
+The manifest records each created kernel's names, Level Zero handles, runtime
+base address, module binary size, kernel binary size, and saved ELF/DWARF path.
+The kernel binary size comes from `zeKernelGetBinaryExp`; it is `null` if the
+driver query fails.
+
+Set `TOTAL_LOOPS` or `MATRIX_SIZE` to configure the sample. `VTUNE_BIN`,
+`VTUNE_RESULT_DIR`, `VTUNE_COMPUTING_TASK`, `VTUNE_ZEBIN`, and `READELF_BIN`
+configure VTune collection and correlation. `analyze` uses the `.zebin` DWARF
+line table to correlate VTune binary offsets with source locations; when a
+single source location cannot be attributed directly, its JSON sidecar records
+the reachable user call sites.
+
 
 ## Manual Build
 
