@@ -49,33 +49,11 @@ class FixedResolutionAdapter final : public DwarfAdapter {
   std::string backend_name_;
 };
 
-TEST(CliTest, ParsesAllIpsJsonRequest) {
+TEST(CliTest, ParsesKernelDebugJsonRequest) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
-  "--kernel-debug-json",
-  "kernel_debug.json",
-      "--all-ips",
-  };
-  std::vector<char*> argv;
-  argv.reserve(args.size());
-  for (std::string& arg : args) {
-    argv.push_back(arg.data());
-  }
-
-  std::ostringstream errors;
-  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
-
-  ASSERT_TRUE(cli.has_value()) << errors.str();
-  EXPECT_TRUE(cli->resolve_all_ips);
-  EXPECT_EQ(cli->kernel_debug_json, "kernel_debug.json");
-}
-
-TEST(CliTest, AcceptsKernelDebugJsonAsRequestMetadata) {
-  std::vector<std::string> args = {
-      "dwarf-parser-check",
-      "--kernel-debug-json",
-      "kernel_debug.json",
-      "--all-ips",
+    "--kernel-debug-json",
+    "kernel_debug.json",
   };
   std::vector<char*> argv;
   argv.reserve(args.size());
@@ -88,14 +66,15 @@ TEST(CliTest, AcceptsKernelDebugJsonAsRequestMetadata) {
 
   ASSERT_TRUE(cli.has_value()) << errors.str();
   EXPECT_EQ(cli->kernel_debug_json, "kernel_debug.json");
-  EXPECT_TRUE(cli->resolve_all_ips);
 }
 
-TEST(CliTest, AllowsKernelDebugJsonWithoutIpSelection) {
+TEST(CliTest, RejectsRemovedIpSelectionOptions) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
       "--kernel-debug-json",
       "kernel_debug.json",
+      "--ip",
+      "0xffff8000fff86d00",
   };
   std::vector<char*> argv;
   argv.reserve(args.size());
@@ -106,9 +85,8 @@ TEST(CliTest, AllowsKernelDebugJsonWithoutIpSelection) {
   std::ostringstream errors;
   const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
 
-  ASSERT_TRUE(cli.has_value()) << errors.str();
-  EXPECT_TRUE(cli->ips.empty());
-  EXPECT_FALSE(cli->resolve_all_ips);
+  EXPECT_FALSE(cli.has_value());
+  EXPECT_NE(errors.str().find("unknown argument: --ip"), std::string::npos);
 }
 
 TEST(CliTest, ParsesCsvOutputPath) {
@@ -331,7 +309,7 @@ TEST(CliTest, PrintUsageListsCompiledAdapters) {
   EXPECT_NE(usage.find("rust-gimli"), std::string::npos);
 }
 
-TEST(RustGimliAdapterTest, ResolveAllIpsMapsPrimaryBodyToUserSource) {
+TEST(RustGimliAdapterTest, ResolvesWholeKernelToUserSource) {
   auto adapter = make_rust_gimli_adapter();
   ResolveRequest request;
   request.dwarf_file = sample_dwarf_path();
@@ -339,7 +317,6 @@ TEST(RustGimliAdapterTest, ResolveAllIpsMapsPrimaryBodyToUserSource) {
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
   request.runtime_kernel_address = 0x00008000fff80000ULL;
   request.kernel_binary_size = 81152;
-  request.resolve_all_ips = true;
 
   ASSERT_TRUE(adapter->supports(request));
   const KernelResolution resolution = adapter->resolve_kernel(request);

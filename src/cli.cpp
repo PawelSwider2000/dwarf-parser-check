@@ -2,7 +2,6 @@
 
 #include "core.h"
 
-#include <cstdint>
 #include <iomanip>
 #include <iostream>
 #include <optional>
@@ -13,16 +12,6 @@
 
 namespace dwarf_parser_check {
 namespace {
-
-std::optional<std::uint64_t> parse_ip(std::string_view value) {
-  std::size_t parsed = 0;
-  const int base = value.rfind("0x", 0) == 0 || value.rfind("0X", 0) == 0 ? 16 : 10;
-  const std::uint64_t ip = std::stoull(std::string(value), &parsed, base);
-  if (parsed != value.size()) {
-    return std::nullopt;
-  }
-  return ip;
-}
 
 std::string join_adapter_names(const std::vector<std::string>& names) {
   std::ostringstream stream;
@@ -196,30 +185,6 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
-    if (argument == "--ip") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      try {
-        const auto ip = parse_ip(*value);
-        if (!ip.has_value()) {
-          error_stream << "invalid IP value: " << *value << '\n';
-          return std::nullopt;
-        }
-        options.ips.push_back(*ip);
-      } catch (const std::exception&) {
-        error_stream << "invalid IP value: " << *value << '\n';
-        return std::nullopt;
-      }
-      continue;
-    }
-
-    if (argument == "--all-ips") {
-      options.resolve_all_ips = true;
-      continue;
-    }
-
     if (argument == "--reference") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
@@ -276,8 +241,6 @@ void print_usage(std::ostream& output, const char* program_name) {
          << "\n"
          << "Options:\n"
         << "  --kernel-debug-json <PATH>  Metadata JSON written by simple_sycl_vtune\n"
-         << "  --ip <HEX_OR_DEC>     Instruction pointer to resolve, repeatable\n"
-         << "  --all-ips             Resolve all available IPs\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional reference or VTune source-locations JSON\n"
          << "  --output-csv <PATH>   Write resolved locations as CSV\n"

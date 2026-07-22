@@ -14,7 +14,3 @@ object = "0.32"
 [[test]]
 name = "rust_gimli_tests"
 path = "../../../tests/rust_gimli_tests.rs"
-
-[[test]]
-name = "rust_gimli_internal_tests"
-path = "../../../tests/rust_gimli_internal_tests.rs"

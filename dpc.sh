@@ -24,8 +24,8 @@ Commands:
   clean       Remove the CMake build directory.
   build       Configure and build dwarf-parser-check.
   test        Build and run the CTest suite.
-  run <args>  Build and run dwarf-parser-check. Pass resolver options such as --ip.
-  all <args>  Clean, build, test, then run with the supplied resolver options.
+  run         Build and run dwarf-parser-check for every kernel in the manifest.
+  all         Clean, build, test, then run dwarf-parser-check.
 
 Environment:
   BUILD_DIR          CMake build directory (default: build)
@@ -41,8 +41,8 @@ Examples:
   $(basename "$0") clean
   $(basename "$0") build
   $(basename "$0") test
-  $(basename "$0") run --ip 0xffff8000fff80000
-  $(basename "$0") all --ip 0xffff8000fff80000
+  $(basename "$0") run
+  ADAPTERS=all $(basename "$0") all
 EOF
 }
 

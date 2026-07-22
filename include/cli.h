@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdint>
 #include <filesystem>
 #include <iosfwd>
 #include <optional>
@@ -13,8 +12,6 @@ struct ResolveReport;
 
 struct CliOptions {
   std::filesystem::path kernel_debug_json;
-  std::vector<std::uint64_t> ips;
-  bool resolve_all_ips = false;
   std::optional<std::filesystem::path> reference_file;
   std::optional<std::filesystem::path> output_csv;
   std::optional<std::filesystem::path> output_json;

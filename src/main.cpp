@@ -51,12 +51,7 @@ int main(int argc, char** argv) {
     ResolveReport output_report;
     for (const KernelDebugData& kernel : kernels) {
       ResolveRequest request = make_resolve_request(kernel);
-      request.ips = cli->ips;
-      request.resolve_all_ips = cli->resolve_all_ips;
       request.reference_file = cli->reference_file;
-      if (request.ips.empty() && !request.resolve_all_ips) {
-        request.resolve_all_ips = true;
-      }
 
       const ResolveReport report = resolve_request(engine, request);
       print_report(report, std::cout);
