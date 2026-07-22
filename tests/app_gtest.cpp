@@ -54,6 +54,8 @@ TEST(CliTest, ParsesKernelDebugJsonRequest) {
       "dwarf-parser-check",
     "--kernel-debug-json",
     "kernel_debug.json",
+    "--output-dir",
+    "results",
   };
   std::vector<char*> argv;
   argv.reserve(args.size());
@@ -89,35 +91,13 @@ TEST(CliTest, RejectsRemovedIpSelectionOptions) {
   EXPECT_NE(errors.str().find("unknown argument: --ip"), std::string::npos);
 }
 
-TEST(CliTest, ParsesCsvOutputPath) {
+TEST(CliTest, ParsesOutputDirectory) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
       "--kernel-debug-json",
       "kernel_debug.json",
-      "--output-csv",
-      "result.csv",
-  };
-  std::vector<char*> argv;
-  argv.reserve(args.size());
-  for (std::string& arg : args) {
-    argv.push_back(arg.data());
-  }
-
-  std::ostringstream errors;
-  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
-
-  ASSERT_TRUE(cli.has_value()) << errors.str();
-  ASSERT_TRUE(cli->output_csv.has_value());
-  EXPECT_EQ(*cli->output_csv, "result.csv");
-}
-
-TEST(CliTest, ParsesJsonOutputPath) {
-  std::vector<std::string> args = {
-      "dwarf-parser-check",
-      "--kernel-debug-json",
-      "kernel_debug.json",
-      "--output-json",
-      "result.json",
+      "--output-dir",
+      "results",
   };
   std::vector<char*> argv;
   for (std::string& arg : args) {
@@ -128,8 +108,7 @@ TEST(CliTest, ParsesJsonOutputPath) {
   const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
 
   ASSERT_TRUE(cli.has_value()) << errors.str();
-  ASSERT_TRUE(cli->output_json.has_value());
-  EXPECT_EQ(*cli->output_json, "result.json");
+  EXPECT_EQ(cli->output_dir, "results");
 }
 
 TEST(CliTest, WritesResolvedLocationsAsCsv) {

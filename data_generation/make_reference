@@ -7,9 +7,6 @@ BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
 JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
 DPC_SCRIPT=${DPC_SCRIPT:-"$SCRIPT_DIR/../dpc.sh"}
 ADAPTERS=${ADAPTERS:-rust-gimli}
-PARSER_OUTPUT_CSV=${PARSER_OUTPUT_CSV:-"$ARTIFACT_DIR/result_dwarf_parser.csv"}
-PARSER_OUTPUT_JSON=${PARSER_OUTPUT_JSON:-"$ARTIFACT_DIR/result_dwarf_parser.json"}
-ADAPTER_VTUNE_COMPARISON_JSON=${ADAPTER_VTUNE_COMPARISON_JSON:-"$ARTIFACT_DIR/adapter_vtune_comparison.json"}
 TOTAL_LOOPS=${TOTAL_LOOPS:-1}
 MATRIX_SIZE=${MATRIX_SIZE:-1024}
 VTUNE_BIN=${VTUNE_BIN:-vtune}
@@ -42,10 +39,6 @@ Configuration is provided through environment variables:
   ARTIFACT_DIR      Generated-artifact directory
   DPC_SCRIPT        dpc.sh script used to run dwarf-parser-check
   ADAPTERS          Adapter selection used by dpc.sh (default: rust-gimli)
-  PARSER_OUTPUT_CSV CSV output path for parser resolutions
-  PARSER_OUTPUT_JSON JSON output path for parser resolutions
-  ADAPTER_VTUNE_COMPARISON_JSON
-                      JSON output path for adapter-versus-VTune comparison
   VTUNE_BIN         VTune CLI executable (default: vtune)
   VTUNE_RESULT_DIR  VTune result directory
   VTUNE_COMPUTING_TASK
@@ -94,8 +87,7 @@ run() {
 
   log "run: resolving kernel debug metadata through $DPC_SCRIPT"
   KERNEL_DEBUG_JSON="$JSON_PATH" \
-  OUTPUT_CSV="$PARSER_OUTPUT_CSV" \
-  OUTPUT_JSON="$PARSER_OUTPUT_JSON" \
+  OUTPUT_DIR="$ARTIFACT_DIR" \
   ADAPTERS="$ADAPTERS" \
   bash "$DPC_SCRIPT" run
 }
@@ -176,8 +168,7 @@ analyze() {
   log "analyze: user source locations: $VTUNE_SOURCE_LOCATIONS_JSON"
   log "analyze: comparing adapters with VTune source locations through $DPC_SCRIPT"
   KERNEL_DEBUG_JSON="$JSON_PATH" \
-  OUTPUT_CSV="$PARSER_OUTPUT_CSV" \
-  OUTPUT_JSON="$ADAPTER_VTUNE_COMPARISON_JSON" \
+  OUTPUT_DIR="$ARTIFACT_DIR" \
   REFERENCE_FILE="$VTUNE_SOURCE_LOCATIONS_JSON" \
   ADAPTERS="$ADAPTERS" \
   bash "$DPC_SCRIPT" run

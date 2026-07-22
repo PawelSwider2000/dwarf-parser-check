@@ -194,21 +194,12 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
-    if (argument == "--output-csv") {
+    if (argument == "--output-dir") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
         return std::nullopt;
       }
-      options.output_csv = std::filesystem::path(*value);
-      continue;
-    }
-
-    if (argument == "--output-json") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.output_json = std::filesystem::path(*value);
+      options.output_dir = std::filesystem::path(*value);
       continue;
     }
 
@@ -229,6 +220,10 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
     error_stream << "--kernel-debug-json is required\n";
     return std::nullopt;
   }
+  if (options.output_dir.empty()) {
+    error_stream << "--output-dir is required\n";
+    return std::nullopt;
+  }
 
   return options;
 }
@@ -243,8 +238,7 @@ void print_usage(std::ostream& output, const char* program_name) {
         << "  --kernel-debug-json <PATH>  Metadata JSON written by simple_sycl_vtune\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional reference or VTune source-locations JSON\n"
-         << "  --output-csv <PATH>   Write resolved locations as CSV\n"
-         << "  --output-json <PATH>  Write resolutions and comparisons as JSON\n"
+         << "  --output-dir <PATH>   Write one CSV and comparison JSON per selected adapter\n"
          << "  --help, -h            Show this help message\n";
 }
 

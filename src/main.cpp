@@ -1,11 +1,33 @@
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "cli.h"
 #include "core.h"
 #include "kernel_debug_manifest.h"
+
+namespace {
+
+std::string adapter_file_name(std::string_view adapter_name, std::string_view suffix) {
+  std::string result = "adapter_";
+  for (const unsigned char character : adapter_name) {
+    if ((character >= 'a' && character <= 'z') ||
+        (character >= 'A' && character <= 'Z') ||
+        (character >= '0' && character <= '9') || character == '-' || character == '_') {
+      result += static_cast<char>(character);
+    } else {
+      result += '_';
+    }
+  }
+  return result + std::string(suffix);
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
   using namespace dwarf_parser_check;
@@ -22,7 +44,6 @@ int main(int argc, char** argv) {
   }
 
   try {
-    ResolverEngine engine(make_registry(create_adapters(cli->adapter_selection)));
     const std::vector<KernelDebugData> kernels =
         load_kernel_debug_manifest(cli->kernel_debug_json);
     if (kernels.empty()) {
@@ -30,50 +51,50 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    std::ofstream csv_output;
-    if (cli->output_csv.has_value()) {
-      csv_output.open(*cli->output_csv);
-      if (!csv_output) {
-        throw std::runtime_error("unable to open CSV output file: " + cli->output_csv->string());
-      }
-    }
-
-    std::ofstream json_output;
-    if (cli->output_json.has_value()) {
-      json_output.open(*cli->output_json);
-      if (!json_output) {
-        throw std::runtime_error("unable to open JSON output file: " + cli->output_json->string());
-      }
+    std::filesystem::create_directories(cli->output_dir);
+    std::vector<DwarfAdapterPtr> adapters = create_adapters(cli->adapter_selection);
+    if (adapters.empty()) {
+      throw std::runtime_error("adapter selection did not produce any compiled adapters");
     }
 
     bool resolved_any_kernel = false;
-    ResolveReport csv_report;
-    ResolveReport output_report;
-    for (const KernelDebugData& kernel : kernels) {
-      ResolveRequest request = make_resolve_request(kernel);
-      request.reference_file = cli->reference_file;
+    for (DwarfAdapterPtr& adapter : adapters) {
+      const std::string adapter_name = adapter->name();
+      std::vector<DwarfAdapterPtr> single_adapter;
+      single_adapter.push_back(std::move(adapter));
+      ResolverEngine engine(make_registry(std::move(single_adapter)));
 
-      const ResolveReport report = resolve_request(engine, request);
-      print_report(report, std::cout);
-      if (csv_output) {
-        csv_report.resolutions.insert(
-            csv_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
+      ResolveReport adapter_report;
+      for (const KernelDebugData& kernel : kernels) {
+        ResolveRequest request = make_resolve_request(kernel);
+        request.reference_file = cli->reference_file;
+
+        const ResolveReport report = resolve_request(engine, request);
+        print_report(report, std::cout);
+        adapter_report.resolutions.insert(
+            adapter_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
+        adapter_report.comparisons.insert(
+            adapter_report.comparisons.end(), report.comparisons.begin(), report.comparisons.end());
+        adapter_report.diagnostics.insert(
+            adapter_report.diagnostics.end(), report.diagnostics.begin(), report.diagnostics.end());
       }
-      if (json_output) {
-        output_report.resolutions.insert(
-            output_report.resolutions.end(), report.resolutions.begin(), report.resolutions.end());
-        output_report.comparisons.insert(
-            output_report.comparisons.end(), report.comparisons.begin(), report.comparisons.end());
-        output_report.diagnostics.insert(
-            output_report.diagnostics.end(), report.diagnostics.begin(), report.diagnostics.end());
+
+      const std::filesystem::path csv_path = cli->output_dir /
+          adapter_file_name(adapter_name, "_result_dwarf_parser.csv");
+      std::ofstream csv_output(csv_path);
+      if (!csv_output) {
+        throw std::runtime_error("unable to open CSV output file: " + csv_path.string());
       }
-      resolved_any_kernel = resolved_any_kernel || !report.empty();
-    }
-    if (csv_output) {
-      write_report_csv(csv_report, csv_output);
-    }
-    if (json_output) {
-      write_report_json(output_report, json_output);
+      write_report_csv(adapter_report, csv_output);
+
+      const std::filesystem::path json_path = cli->output_dir /
+          adapter_file_name(adapter_name, "_vtune_comparison.json");
+      std::ofstream json_output(json_path);
+      if (!json_output) {
+        throw std::runtime_error("unable to open JSON output file: " + json_path.string());
+      }
+      write_report_json(adapter_report, json_output);
+      resolved_any_kernel = resolved_any_kernel || !adapter_report.empty();
     }
     return resolved_any_kernel ? 0 : 1;
   } catch (const std::exception& error) {

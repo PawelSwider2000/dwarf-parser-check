@@ -7,10 +7,9 @@ BUILD_TYPE=${BUILD_TYPE:-Debug}
 CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 DEFAULT_KERNEL_DEBUG_JSON="$SCRIPT_DIR/artifacts/simple_sycl_vtune_kernel_debug.json"
 KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-"$DEFAULT_KERNEL_DEBUG_JSON"}
-OUTPUT_CSV=${OUTPUT_CSV:-"$SCRIPT_DIR/artifacts/result_dwarf_parser.csv"}
-OUTPUT_JSON=${OUTPUT_JSON:-"$SCRIPT_DIR/artifacts/adapter_vtune_comparison.json"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$SCRIPT_DIR/artifacts"}
 REFERENCE_FILE=${REFERENCE_FILE:-"$SCRIPT_DIR/artifacts/result_vtune_reference.csv"}
-ADAPTERS=${ADAPTERS:-rust-gimli}
+ADAPTERS=${ADAPTERS:-all}
 
 log() {
   printf '[dpc] %s\n' "$*"
@@ -32,10 +31,9 @@ Environment:
   BUILD_TYPE         CMake build type (default: Debug)
   CMAKE_GENERATOR    CMake generator (default: Ninja)
   KERNEL_DEBUG_JSON  Kernel debug manifest for run (default: artifacts/simple_sycl_vtune_kernel_debug.json)
-  OUTPUT_CSV         CSV output path for run (default: artifacts/result_dwarf_parser.csv)
-  OUTPUT_JSON        Pretty JSON comparison report (default: artifacts/adapter_vtune_comparison.json)
+  OUTPUT_DIR         Directory for per-adapter CSV and JSON reports (default: artifacts)
   REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV
-  ADAPTERS           Adapter selection for run (default: rust-gimli)
+  ADAPTERS           Adapter selection for run (default: all)
 
 Examples:
   $(basename "$0") clean
@@ -83,13 +81,11 @@ run() {
   build
   ensure_kernel_debug_json
 
-  mkdir -p "$(dirname "$OUTPUT_CSV")"
-  mkdir -p "$(dirname "$OUTPUT_JSON")"
+  mkdir -p "$OUTPUT_DIR"
   local resolver_args=(
     --kernel-debug-json "$KERNEL_DEBUG_JSON"
     --adapters "$ADAPTERS"
-    --output-csv "$OUTPUT_CSV"
-    --output-json "$OUTPUT_JSON"
+    --output-dir "$OUTPUT_DIR"
   )
   if [[ -n "$REFERENCE_FILE" ]]; then
     if [[ ! -f "$REFERENCE_FILE" ]]; then
@@ -105,13 +101,8 @@ run() {
 
   local kernel_count
   kernel_count=$(grep -c '"mangled_name"' "$KERNEL_DEBUG_JSON" || true)
-  local resolved_address_count
-  resolved_address_count=$(awk 'END { print (NR > 0 ? NR - 1 : 0) }' "$OUTPUT_CSV")
-
   log "run: kernel metadata JSON: $KERNEL_DEBUG_JSON ($kernel_count kernel(s))"
-  log "run: resolved $resolved_address_count address(es) with $ADAPTERS"
-  log "run: CSV saved to $OUTPUT_CSV"
-  log "run: adapter/VTune comparison JSON saved to $OUTPUT_JSON"
+  log "run: per-adapter reports saved to $OUTPUT_DIR"
   if [[ -n "$REFERENCE_FILE" ]]; then
     log "run: compared with reference $REFERENCE_FILE"
   fi

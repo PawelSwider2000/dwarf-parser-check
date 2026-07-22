@@ -13,8 +13,7 @@ struct ResolveReport;
 struct CliOptions {
   std::filesystem::path kernel_debug_json;
   std::optional<std::filesystem::path> reference_file;
-  std::optional<std::filesystem::path> output_csv;
-  std::optional<std::filesystem::path> output_json;
+  std::filesystem::path output_dir;
   std::string adapter_selection = "all";
   bool show_help = false;
 };
