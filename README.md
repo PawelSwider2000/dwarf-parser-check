@@ -112,6 +112,21 @@ Important implementation notes:
 - JSON `mangled_name` is used for symbol matching during IP enumeration
 - the sample selector is `_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE`
 
+### iga
+
+The IGA adapter lives under [src/adapters/iga](src/adapters/iga) and uses the
+in-process Intel Graphics Assembler C API together with `libelf` and `libdw`.
+It does not execute IGA, `addr2line`, or any other command. It extracts the
+selected kernel's runtime-size span from its ELF text section, validates
+candidate instruction boundaries with IGA, and resolves the decoded PCs through
+DWARF.
+
+IGA requires the exact target ISA. Set `DPC_IGA_PLATFORM` to the numeric IGA
+platform value supported by the installed `libiga64` before selecting `iga`.
+The adapter returns a warning without invoking IGA when that setting is absent.
+This is intentional: guessing a platform can misdecode GPU code or hang older
+IGA runtimes on newer hardware captures.
+
 ## Adapter Selection
 
 The CLI supports dynamic adapter selection based on compiled adapters.
@@ -164,8 +179,10 @@ path or a VTune address-report CSV to include per-adapter comparison results.
 When the default manifest is absent, `run` generates it through
 `data_generation/make_reference` and saves it as
 `artifacts/simple_sycl_vtune_kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
-`OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `BUILD_DIR`, or
-`BUILD_TYPE` to override those defaults. `./dpc.sh all` performs the full
+`OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `IGA_PLATFORM`, `BUILD_DIR`, or
+`BUILD_TYPE` to override those defaults. `IGA_PLATFORM` is passed to the IGA
+adapter as `DPC_IGA_PLATFORM`; the included Xe2 sample defaults to `0x02000000`.
+`./dpc.sh all` performs the full
 clean, build, test, and whole-kernel resolution sequence.
 
 ## Sample And VTune Workflow

@@ -10,7 +10,13 @@
 #include "cli.h"
 #include "core.h"
 #include "kernel_debug_manifest.h"
+#if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
+#include "adapters/gdb/gdb_intel_adapter.h"
+#endif
 #include "adapters/gimli/rust_gimli_adapter.h"
+#if defined(DPC_HAVE_IGA_ADAPTER)
+#include "adapters/iga/iga_adapter.h"
+#endif
 
 namespace dwarf_parser_check {
 namespace {
@@ -306,6 +312,79 @@ TEST(RustGimliAdapterTest, ResolvesWholeKernelToUserSource) {
   EXPECT_TRUE(ends_with(resolution.locations.front().location.file, "simple_sycl_vtune.cpp"));
   ASSERT_TRUE(resolution.locations.front().location.line.has_value());
 }
+
+#if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
+TEST(GdbIntelAdapterTest, RequiresAConfiguredExecutable) {
+  const char* configured_path = std::getenv("DPC_GDB_ADDR2LINE");
+  const std::optional<std::string> saved_path =
+      configured_path == nullptr ? std::nullopt : std::optional<std::string>(configured_path);
+  ASSERT_EQ(unsetenv("DPC_GDB_ADDR2LINE"), 0);
+
+  auto adapter = make_gdb_intel_adapter();
+  ResolveRequest request;
+  request.dwarf_file = sample_dwarf_path();
+  request.kernel_name = "test-kernel";
+
+  const KernelResolution resolution = adapter->resolve_kernel(request);
+  ASSERT_EQ(resolution.locations.size(), 0U);
+  ASSERT_EQ(resolution.warnings.size(), 1U);
+
+  if (saved_path.has_value()) {
+    setenv("DPC_GDB_ADDR2LINE", saved_path->c_str(), 1);
+  }
+}
+#endif
+
+#if defined(DPC_HAVE_IGA_ADAPTER)
+TEST(IgaAdapterTest, ResolvesDecodedInstructionsAndComparesWithVtune) {
+  const char* configured_platform = std::getenv("DPC_IGA_PLATFORM");
+  const std::optional<std::string> saved_platform =
+      configured_platform == nullptr ? std::nullopt : std::optional<std::string>(configured_platform);
+  ASSERT_EQ(setenv("DPC_IGA_PLATFORM", "0x02000000", 1), 0);
+
+  auto adapter = make_iga_adapter();
+  ResolveRequest request;
+  request.dwarf_file = sample_dwarf_path();
+  request.kernel_name = "(anonymous namespace)::PrimaryGEMMKernel";
+  request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
+  request.kernel_binary_size = 81152;
+  request.reference_file = std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" / "source_locations.json";
+
+  ASSERT_TRUE(adapter->supports(request));
+  std::vector<DwarfAdapterPtr> adapters;
+  adapters.push_back(std::move(adapter));
+  const ResolverEngine engine(make_registry(std::move(adapters)));
+  const ResolveReport report = resolve_request(engine, request);
+
+  ASSERT_EQ(report.resolutions.size(), 1U);
+  EXPECT_EQ(report.resolutions[0].backend_name, "iga");
+  EXPECT_GE(report.resolutions[0].locations.size(), 5000U);
+  ASSERT_FALSE(report.comparisons.empty());
+  EXPECT_EQ(report.comparisons[0].backend_name, "iga");
+  EXPECT_GT(
+      std::count_if(
+          report.comparisons[0].items.begin(),
+          report.comparisons[0].items.end(),
+          [](const ComparisonItem& item) {
+            return item.status == ComparisonStatus::kMatch;
+          }),
+      0U);
+  EXPECT_EQ(
+      std::count_if(
+          report.comparisons[0].items.begin(),
+          report.comparisons[0].items.end(),
+          [](const ComparisonItem& item) {
+            return item.status == ComparisonStatus::kMissingInBackend;
+          }),
+      0U);
+
+  if (saved_platform.has_value()) {
+    setenv("DPC_IGA_PLATFORM", saved_platform->c_str(), 1);
+  } else {
+    unsetenv("DPC_IGA_PLATFORM");
+  }
+}
+#endif
 
 }  // namespace
 }  // namespace dwarf_parser_check

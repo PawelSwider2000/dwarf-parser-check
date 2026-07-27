@@ -25,7 +25,18 @@ target_compile_definitions(dwarf_parser_check_tests PRIVATE
   DPC_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
-gtest_discover_tests(dwarf_parser_check_tests)
+if(DPC_CAN_BUILD_IGA_ADAPTER)
+  target_compile_definitions(dwarf_parser_check_tests PRIVATE DPC_HAVE_IGA_ADAPTER=1)
+endif()
+
+if(DPC_CAN_BUILD_GDB_INTEL_ADAPTER)
+  target_compile_definitions(dwarf_parser_check_tests PRIVATE DPC_HAVE_GDB_INTEL_ADAPTER=1)
+endif()
+
+gtest_discover_tests(dwarf_parser_check_tests
+  PROPERTIES
+    TIMEOUT 5
+)
 
 find_program(CARGO_EXECUTABLE cargo)
 if(CARGO_EXECUTABLE)

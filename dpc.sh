@@ -10,6 +10,8 @@ KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-"$DEFAULT_KERNEL_DEBUG_JSON"}
 OUTPUT_DIR=${OUTPUT_DIR:-"$SCRIPT_DIR/artifacts"}
 REFERENCE_FILE=${REFERENCE_FILE:-"$SCRIPT_DIR/artifacts/result_vtune_reference.csv"}
 ADAPTERS=${ADAPTERS:-all}
+IGA_PLATFORM=${IGA_PLATFORM:-0x02000000}
+GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-intelgt/binutils/addr2line"}
 
 log() {
   printf '[dpc] %s\n' "$*"
@@ -34,6 +36,8 @@ Environment:
   OUTPUT_DIR         Directory for per-adapter CSV and JSON reports (default: artifacts)
   REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV
   ADAPTERS           Adapter selection for run (default: all)
+  IGA_PLATFORM       IGA target platform passed to the IGA adapter (default: 0x02000000, Xe2)
+  GDB_ADDR2LINE      IntelGT-aware addr2line executable used by gdb-intel
 
 Examples:
   $(basename "$0") clean
@@ -50,9 +54,14 @@ clean() {
 }
 
 build() {
+  if [[ ! -x "$GDB_ADDR2LINE" ]]; then
+    echo "IntelGT addr2line executable not found: $GDB_ADDR2LINE" >&2
+    return 1
+  fi
   log "build: configuring $BUILD_DIR"
   cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -G "$CMAKE_GENERATOR" \
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
+    -DDPC_GDB_ADDR2LINE_EXECUTABLE="$GDB_ADDR2LINE"
   log "build: compiling dwarf-parser-check"
   cmake --build "$BUILD_DIR"
 }
@@ -95,7 +104,8 @@ run() {
     resolver_args+=(--reference "$REFERENCE_FILE")
   fi
 
-  "$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" \
+  DPC_IGA_PLATFORM="$IGA_PLATFORM" DPC_GDB_ADDR2LINE="$GDB_ADDR2LINE" \
+    "$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" \
     "$@" \
     >/dev/null
 

@@ -5,8 +5,10 @@
 #include <string>
 #include <string_view>
 
+#include "adapters/gdb/gdb_intel_adapter.h"
 #include "compare.h"
 #include "adapters/gimli/rust_gimli_adapter.h"
+#include "adapters/iga/iga_adapter.h"
 
 namespace dwarf_parser_check {
 
@@ -21,6 +23,12 @@ std::vector<AdapterDescriptor> compiled_adapter_descriptors() {
   std::vector<AdapterDescriptor> descriptors;
 #if defined(DPC_HAVE_RUST_GIMLI_ADAPTER)
   descriptors.push_back({"rust-gimli", &make_rust_gimli_adapter});
+#endif
+#if defined(DPC_HAVE_IGA_ADAPTER)
+  descriptors.push_back({"iga", &make_iga_adapter});
+#endif
+#if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
+  descriptors.push_back({"gdb-intel", &make_gdb_intel_adapter});
 #endif
   return descriptors;
 }

@@ -2,6 +2,7 @@
 /build/
 /src/adapters/gimli/target/
 /artifacts/
+build-gdb-intel/
 
 # CMake and CTest generated files
 /CMakeUserPresets.json
@@ -31,3 +32,5 @@
 
 #Python
 __pycache__/
+
+
