@@ -50,7 +50,7 @@ def find_zebin(result_dir: Path, explicit_zebin: Path | None) -> Path:
     if len(zebins) != 1:
         raise ValueError(
             f"expected exactly one .zebin in {result_dir}, found {len(zebins)}; "
-            "set VTUNE_ZEBIN to select one"
+            "pass --zebin to select one"
         )
     return zebins[0]
 

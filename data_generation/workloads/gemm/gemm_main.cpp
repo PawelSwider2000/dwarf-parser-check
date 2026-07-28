@@ -13,15 +13,13 @@
 
 namespace {
 
-constexpr int kDefaultMatrixSize = 1024;
-constexpr int kDefaultTotalLoops = 3;
+constexpr int kMatrixSize = 1024;
+constexpr int kTotalLoops = 3;
 constexpr float kAValue = 0.128f;
 constexpr float kBValue = 0.256f;
 constexpr float kMaxEps = 1.0e-4f;
 
 struct Config {
-  int totalLoops = kDefaultTotalLoops;
-  int matrixSize = kDefaultMatrixSize;
   std::string jsonOutputPath = "simple_sycl_vtune_kernel_debug.json";
 };
 
@@ -86,8 +84,6 @@ std::string BuildCollectedKernelDebugDataJson(const Config &config) {
   const size_t kernelCount = GetKernelDebugDataCount();
   std::ostringstream json;
   json << "{\n"
-       << "  \"total_loops\": " << config.totalLoops << ",\n"
-       << "  \"matrix_size\": " << config.matrixSize << ",\n"
        << "  \"kernel_count\": " << kernelCount << ",\n"
        << "  \"json_output_path\": \""
        << EscapeJsonString(std::filesystem::absolute(config.jsonOutputPath).string())
@@ -145,31 +141,16 @@ bool WriteCollectedKernelDebugDataJson(const Config &config) {
 
 void Usage(const char *name) {
   std::cerr << "Usage: " << name
-            << " [total_loops] [matrix_size] [json_output_path]\n"
-            << "  total_loops      : Total kernel launches (default: "
-            << kDefaultTotalLoops << ")\n"
-            << "  matrix_size      : Square GEMM size (default: "
-            << kDefaultMatrixSize << ")\n"
+            << " [json_output_path]\n"
             << "  json_output_path : Output JSON file path (default: simple_sycl_vtune_kernel_debug.json)\n";
 }
 
 Config ParseCommandLine(int argc, char *argv[]) {
   Config config;
   if (argc > 1) {
-    config.totalLoops = std::atoi(argv[1]);
+    config.jsonOutputPath = argv[1];
   }
   if (argc > 2) {
-    config.matrixSize = std::atoi(argv[2]);
-  }
-  if (argc > 3) {
-    config.jsonOutputPath = argv[3];
-  }
-  if (argc > 4) {
-    Usage(argv[0]);
-    std::exit(EXIT_FAILURE);
-  }
-
-  if (config.totalLoops <= 0 || config.matrixSize <= 0) {
     Usage(argv[0]);
     std::exit(EXIT_FAILURE);
   }
@@ -253,15 +234,13 @@ int main(int argc, char *argv[]) {
 
   sycl::queue queue(sycl::gpu_selector_v, sycl::property::queue::in_order{});
   std::cout << "[host] device: "
-            << queue.get_device().get_info<sycl::info::device::name>() << "\n"
-            << "[host] total_loops=" << config.totalLoops
-            << "  matrix_size=" << config.matrixSize << "\n\n";
+            << queue.get_device().get_info<sycl::info::device::name>() << "\n\n";
 
   InitLevelZeroModuleDebugCollection();
-  for (int iteration = 0; iteration < config.totalLoops; ++iteration) {
+  for (int iteration = 0; iteration < kTotalLoops; ++iteration) {
     std::cout << "[host] >>> submitting iteration " << iteration << "\n";
     const bool ok = RunGEMMWorkload<PrimaryGEMMKernel>(
-        queue, config.matrixSize, "PrimaryGEMMKernel");
+        queue, kMatrixSize, "PrimaryGEMMKernel");
     if (!ok) {
       std::cerr << "[host] validation failed\n";
       ShutdownLevelZeroModuleDebugCollection();

@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+DEBUG_MODE=g
+OPT_LEVEL=O0
+
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/../artifacts"}
-BIN_PATH="$ARTIFACT_DIR/simple_sycl_vtune"
+WORKLOAD=${WORKLOAD:-gemm}
+WORKLOAD_DIR="$SCRIPT_DIR/workloads/$WORKLOAD"
+WORKLOAD_BUILD_DIR="$ARTIFACT_DIR/build/$WORKLOAD/$DEBUG_MODE-$OPT_LEVEL"
+BIN_PATH="$WORKLOAD_BUILD_DIR/bin/$WORKLOAD"
 JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
-DPC_SCRIPT=${DPC_SCRIPT:-"$SCRIPT_DIR/../dpc.sh"}
-ADAPTERS=${ADAPTERS:-rust-gimli}
-TOTAL_LOOPS=${TOTAL_LOOPS:-1}
-MATRIX_SIZE=${MATRIX_SIZE:-1024}
-VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-"$ARTIFACT_DIR/vtune_pc_sampling"}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
 VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-"$ARTIFACT_DIR/result_vtune_reference.csv"}
 VTUNE_SOURCE_LOCATIONS_JSON=${VTUNE_SOURCE_LOCATIONS_JSON:-"$ARTIFACT_DIR/source_locations.json"}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 USER_SOURCE_ROOT=${USER_SOURCE_ROOT:-"$SCRIPT_DIR"}
-VTUNE_ZEBIN=${VTUNE_ZEBIN:-}
-READELF_BIN=${READELF_BIN:-readelf}
 
 log() {
   printf '[make_reference] %s\n' "$*"
@@ -25,21 +24,23 @@ log() {
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") <command> [<command> ...]
+Usage: $(basename "$0") [--debug <g|gline|none>] [--opt <O0|O1|O2>] <command> [<command> ...]
 
 Commands execute in the order provided:
   build      Build the SYCL sample.
-  run        Run the sample and resolve its generated kernel debug metadata.
+  run        Run the sample and write its kernel debug metadata.
   vtune_run  Profile the sample with VTune GPU PC sampling.
   analyze    Generate a VTune address-to-source-line CSV report.
 
+Options:
+  --debug MODE       Debug information: g, gline, or none (default: g)
+  --opt LEVEL        Optimization: O0, O1, or O2 (default: O0)
+
 Configuration is provided through environment variables:
-  TOTAL_LOOPS       Sample loop count (default: 1)
-  MATRIX_SIZE       Sample matrix dimension (default: 128)
   ARTIFACT_DIR      Generated-artifact directory
-  DPC_SCRIPT        dpc.sh script used to run dwarf-parser-check
-  ADAPTERS          Adapter selection used by dpc.sh (default: rust-gimli)
-  VTUNE_BIN         VTune CLI executable (default: vtune)
+  WORKLOAD          Workload directory name (default: gemm)
+  WORKLOAD_BUILD_DIR
+                      CMake build directory (default: artifacts/build/<debug>-<opt>)
   VTUNE_RESULT_DIR  VTune result directory
   VTUNE_COMPUTING_TASK
                       GPU computing task to analyze (default: PrimaryGEMMKernel)
@@ -49,29 +50,29 @@ Configuration is provided through environment variables:
                       Per-IP highest user locations JSON output path
   VTUNE_TARGET_GPU  Comma-separated PCI GPU adapter IDs to profile
   USER_SOURCE_ROOT    Root directory used to identify user source files
-  VTUNE_ZEBIN        GPU binary to use when the result contains multiple .zebin files
-  READELF_BIN        readelf executable used for DWARF line decoding
 EOF
 }
 
 build() {
-  log "build: compiling SYCL sample"
+  if [[ ! -f "$WORKLOAD_DIR/CMakeLists.txt" ]]; then
+    echo "workload CMake project not found: $WORKLOAD_DIR" >&2
+    return 1
+  fi
+
+  log "build: configuring workload $WORKLOAD (debug=$DEBUG_MODE, opt=$OPT_LEVEL)"
   mkdir -p "$ARTIFACT_DIR"
 
-  pushd "$SCRIPT_DIR" >/dev/null
-  icpx \
-    -fsycl -std=c++20 -g -O0 \
-    simple_sycl_vtune.cpp \
-    kernel_debug_info.cpp \
-    -lze_loader \
-    -o "$BIN_PATH"
-  popd >/dev/null
+  cmake -S "$WORKLOAD_DIR" -B "$WORKLOAD_BUILD_DIR" \
+    -DCMAKE_CXX_COMPILER=icpx \
+    -DDPC_WORKLOAD_DEBUG="$DEBUG_MODE" \
+    -DDPC_WORKLOAD_OPT="$OPT_LEVEL"
+  cmake --build "$WORKLOAD_BUILD_DIR"
 
   log "build: binary: $BIN_PATH"
 }
 
 run() {
-  log "run: executing sample (loops=$TOTAL_LOOPS, matrix_size=$MATRIX_SIZE)"
+  log "run: executing workload $WORKLOAD"
   if [[ ! -x "$BIN_PATH" ]]; then
     echo "sample binary not found or not executable: $BIN_PATH; run 'build' first" >&2
     return 1
@@ -80,16 +81,10 @@ run() {
   (
     cd "$ARTIFACT_DIR"
     ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-    "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH"
+    "$BIN_PATH" "$JSON_PATH"
   )
 
   log "run: json: $JSON_PATH"
-
-  log "run: resolving kernel debug metadata through $DPC_SCRIPT"
-  KERNEL_DEBUG_JSON="$JSON_PATH" \
-  OUTPUT_DIR="$ARTIFACT_DIR" \
-  ADAPTERS="$ADAPTERS" \
-  bash "$DPC_SCRIPT" run
 }
 
 vtune_run() {
@@ -120,9 +115,9 @@ vtune_run() {
   if [[ -n "$VTUNE_TARGET_GPU" ]]; then
     vtune_args+=(-knob "target-gpu=$VTUNE_TARGET_GPU")
   fi
-  vtune_args+=(-- "$BIN_PATH" "$TOTAL_LOOPS" "$MATRIX_SIZE" "$JSON_PATH")
+  vtune_args+=(-- "$BIN_PATH" "$JSON_PATH")
 
-  "$VTUNE_BIN" "${vtune_args[@]}"
+  vtune "${vtune_args[@]}"
 
   log "vtune_run: VTune result: $VTUNE_RESULT_DIR"
 }
@@ -137,7 +132,7 @@ analyze() {
   mkdir -p "$(dirname "$VTUNE_REFERENCE_CSV")"
   local raw_report
   raw_report=$(mktemp "${TMPDIR:-/tmp}/vtune-reference.XXXXXX.csv")
-  "$VTUNE_BIN" \
+  vtune \
     -report hotspots \
     -result-dir "$VTUNE_RESULT_DIR" \
     -source-object "computing-task=$VTUNE_COMPUTING_TASK" \
@@ -153,11 +148,7 @@ analyze() {
     --result-dir "$VTUNE_RESULT_DIR"
     --source-locations-output "$VTUNE_SOURCE_LOCATIONS_JSON"
     --user-source-root "$USER_SOURCE_ROOT"
-    --readelf "$READELF_BIN"
   )
-  if [[ -n "$VTUNE_ZEBIN" ]]; then
-    correlate_args+=(--zebin "$VTUNE_ZEBIN")
-  fi
   if ! python3 "$SCRIPT_DIR/correlate_vtune_report.py" "${correlate_args[@]}"; then
     rm -f "$raw_report"
     return 1
@@ -166,14 +157,56 @@ analyze() {
 
   log "analyze: CSV report: $VTUNE_REFERENCE_CSV"
   log "analyze: user source locations: $VTUNE_SOURCE_LOCATIONS_JSON"
-  log "analyze: comparing adapters with VTune source locations through $DPC_SCRIPT"
-  KERNEL_DEBUG_JSON="$JSON_PATH" \
-  OUTPUT_DIR="$ARTIFACT_DIR" \
-  REFERENCE_FILE="$VTUNE_SOURCE_LOCATIONS_JSON" \
-  ADAPTERS="$ADAPTERS" \
-  bash "$DPC_SCRIPT" run
 }
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --debug)
+      if [[ $# -lt 2 ]]; then
+        echo "--debug requires g, gline, or none" >&2
+        exit 1
+      fi
+      DEBUG_MODE=$2
+      case "$DEBUG_MODE" in
+        g|gline|none)
+          ;;
+        *)
+          echo "unsupported debug mode: $DEBUG_MODE; expected g, gline, or none" >&2
+          exit 1
+          ;;
+      esac
+      shift 2
+      ;;
+    --opt)
+      if [[ $# -lt 2 ]]; then
+        echo "--opt requires O0, O1, or O2" >&2
+        exit 1
+      fi
+      OPT_LEVEL=${2#-}
+      case "$OPT_LEVEL" in
+        O0|O1|O2)
+          ;;
+        *)
+          echo "unsupported optimization level: $OPT_LEVEL; expected O0, O1, or O2" >&2
+          exit 1
+          ;;
+      esac
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    --*)
+      echo "unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
 if [[ $# -eq 0 ]]; then
   usage >&2
   exit 1
