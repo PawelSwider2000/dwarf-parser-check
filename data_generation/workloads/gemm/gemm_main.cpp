@@ -1,10 +1,15 @@
 #include <sycl/sycl.hpp>
+#include <sycl/ext/oneapi/backend/level_zero.hpp>
+
+#include <level_zero/ze_api.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -80,7 +85,30 @@ std::string FormatHexAddress(uint64_t address) {
   return formatted.str();
 }
 
-std::string BuildCollectedKernelDebugDataJson(const Config &config) {
+std::optional<uint32_t> GetIgaPlatform(const sycl::device &device) {
+  ze_device_ip_version_ext_t ipVersion{
+      ZE_STRUCTURE_TYPE_DEVICE_IP_VERSION_EXT, nullptr, 0};
+  ze_device_properties_t properties{
+      ZE_STRUCTURE_TYPE_DEVICE_PROPERTIES, &ipVersion};
+  const ze_device_handle_t nativeDevice =
+      sycl::get_native<sycl::backend::ext_oneapi_level_zero>(device);
+  if (zeDeviceGetProperties(nativeDevice, &properties) != ZE_RESULT_SUCCESS ||
+      ipVersion.ipVersion == 0) {
+    return std::nullopt;
+  }
+
+  switch (ipVersion.ipVersion >> 24) {
+    case 5:
+      return 2U << 24;
+    case 6:
+      return 3U << 24;
+    default:
+      return std::nullopt;
+  }
+}
+
+std::string BuildCollectedKernelDebugDataJson(
+    const Config &config, const std::optional<uint32_t> &igaPlatform) {
   const size_t kernelCount = GetKernelDebugDataCount();
   std::ostringstream json;
   json << "{\n"
@@ -112,6 +140,13 @@ std::string BuildCollectedKernelDebugDataJson(const Config &config) {
       } else {
         json << "null";
       }
+      json << ",\n"
+           << "      \"iga_platform\": ";
+      if (igaPlatform.has_value()) {
+        json << "\"" << FormatHexAddress(*igaPlatform) << "\"";
+      } else {
+        json << "null";
+      }
       json << "\n"
            << "    }";
     if (index + 1 != kernelCount) {
@@ -125,14 +160,15 @@ std::string BuildCollectedKernelDebugDataJson(const Config &config) {
   return json.str();
 }
 
-bool WriteCollectedKernelDebugDataJson(const Config &config) {
+bool WriteCollectedKernelDebugDataJson(
+  const Config &config, const std::optional<uint32_t> &igaPlatform) {
   std::ofstream output(config.jsonOutputPath, std::ios::binary | std::ios::trunc);
   if (!output) {
     std::cerr << "[host] failed to open JSON output file: "
               << config.jsonOutputPath << "\n";
     return false;
   }
-  output << BuildCollectedKernelDebugDataJson(config);
+  output << BuildCollectedKernelDebugDataJson(config, igaPlatform);
   std::cout << "[host] wrote kernel debug JSON to "
             << std::filesystem::absolute(config.jsonOutputPath).string()
             << "\n";
@@ -235,6 +271,10 @@ int main(int argc, char *argv[]) {
   sycl::queue queue(sycl::gpu_selector_v, sycl::property::queue::in_order{});
   std::cout << "[host] device: "
             << queue.get_device().get_info<sycl::info::device::name>() << "\n\n";
+  const std::optional<uint32_t> igaPlatform = GetIgaPlatform(queue.get_device());
+  if (!igaPlatform.has_value()) {
+    std::cerr << "[host] WARNING: unable to map the Level Zero device IP version to IGA\n";
+  }
 
   InitLevelZeroModuleDebugCollection(config);
   for (int iteration = 0; iteration < kTotalLoops; ++iteration) {
@@ -249,7 +289,7 @@ int main(int argc, char *argv[]) {
   }
   ShutdownLevelZeroModuleDebugCollection();
 
-  if (!WriteCollectedKernelDebugDataJson(config)) {
+  if (!WriteCollectedKernelDebugDataJson(config, igaPlatform)) {
     return EXIT_FAILURE;
   }
   return EXIT_SUCCESS;

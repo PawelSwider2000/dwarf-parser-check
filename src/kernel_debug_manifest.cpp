@@ -95,6 +95,12 @@ std::vector<KernelDebugData> load_kernel_debug_manifest(
       kernel.kernel_binary_size_collected = true;
       kernel.kernel_binary_size = static_cast<std::size_t>(*binary_size);
     }
+    if (const auto iga_platform = find_uint64_field(record, "iga_platform")) {
+      if (*iga_platform > UINT32_MAX) {
+        throw std::runtime_error("iga_platform did not fit in an IGA platform value");
+      }
+      kernel.iga_platform = static_cast<std::uint32_t>(*iga_platform);
+    }
     kernels.push_back(std::move(kernel));
   }
 
@@ -111,6 +117,7 @@ ResolveRequest make_resolve_request(const KernelDebugData& kernel) {
   request.mangled_kernel_name = kernel.mangled_name;
   request.runtime_kernel_address = kernel.runtime_kernel_address;
   request.kernel_binary_size = kernel.kernel_binary_size;
+  request.iga_platform = kernel.iga_platform;
   return request;
 }
 

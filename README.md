@@ -121,11 +121,12 @@ selected kernel's runtime-size span from its ELF text section, validates
 candidate instruction boundaries with IGA, and resolves the decoded PCs through
 DWARF.
 
-IGA requires the exact target ISA. Set `DPC_IGA_PLATFORM` to the numeric IGA
-platform value supported by the installed `libiga64` before selecting `iga`.
-The adapter returns a warning without invoking IGA when that setting is absent.
-This is intentional: guessing a platform can misdecode GPU code or hang older
-IGA runtimes on newer hardware captures.
+IGA requires the exact target ISA. The workload generator reads the selected
+Level Zero device's IP version, maps it to IGA's platform encoding, and records
+the result as each kernel's numeric `iga_platform` value. The adapter returns a
+warning without invoking IGA when the manifest omits that value. This is
+intentional: guessing a platform can misdecode GPU code or hang older IGA
+runtimes on newer hardware captures.
 
 ## Adapter Selection
 
@@ -185,9 +186,9 @@ their highest workload caller.
 When the default manifest is absent, `run` generates it through
 `data_generation/make_reference` and saves it as
 `artifacts/results/gemm/g-O0/kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
-`OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `IGA_PLATFORM`, `BUILD_DIR`, or
-`BUILD_TYPE` to override those defaults. `IGA_PLATFORM` is passed to the IGA
-adapter as `DPC_IGA_PLATFORM`; the included Xe2 sample defaults to `0x02000000`.
+`OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `BUILD_DIR`, or `BUILD_TYPE` to
+override those defaults. The included Xe2 sample records `iga_platform` as
+`0x02000000` in its kernel debug manifest.
 `./dpc.sh all` performs the full
 clean, build, test, and whole-kernel resolution sequence.
 

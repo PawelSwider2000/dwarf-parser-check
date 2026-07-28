@@ -28,6 +28,8 @@ def run_readelf(readelf: str, *arguments: str, allow_nonzero_output: bool = Fals
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     if result.returncode != 0 and not (allow_nonzero_output and result.stdout):
         raise subprocess.CalledProcessError(
@@ -148,7 +150,10 @@ def correlate(
 ) -> tuple[int, int]:
     mapped = 0
     instruction_count = 0
-    with input_csv.open(newline="") as input_stream, output_csv.open("w", newline="") as output_stream:
+    with (
+        input_csv.open(encoding="utf-8", errors="replace", newline="") as input_stream,
+        output_csv.open("w", encoding="utf-8", newline="") as output_stream,
+    ):
         reader = csv.DictReader(input_stream)
         if reader.fieldnames is None or "Address" not in reader.fieldnames:
             raise ValueError(f"VTune report has no Address column: {input_csv}")
@@ -206,7 +211,7 @@ def write_user_source_locations(
     text_address: int,
     functions: list[tuple[int, int]],
 ) -> tuple[int, int]:
-    with report_csv.open(newline="") as stream:
+    with report_csv.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
 
     function_starts = [begin for begin, _end in functions]

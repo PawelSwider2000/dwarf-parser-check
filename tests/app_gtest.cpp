@@ -208,7 +208,7 @@ TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
     std::ofstream manifest(manifest_path);
     ASSERT_TRUE(manifest);
     manifest << R"({"kernels":[
-      {"name":"first","mangled_name":"_ZFirst","demangled_name":"First","elf_dwarf_path":"/tmp/first.dwarf","runtime_kernel_address":"0x800000001000","kernel_binary_size":512},
+      {"name":"first","mangled_name":"_ZFirst","demangled_name":"First","elf_dwarf_path":"/tmp/first.dwarf","runtime_kernel_address":"0x800000001000","kernel_binary_size":512,"iga_platform":"0x02000000"},
       {"name":"second","mangled_name":"_ZSecond","demangled_name":"Second","elf_dwarf_path":"/tmp/second.dwarf"}
     ]})";
   }
@@ -220,11 +220,15 @@ TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
   EXPECT_EQ(kernels[0].demangled_name, "First");
   EXPECT_EQ(kernels[0].runtime_kernel_address, 0x800000001000U);
   EXPECT_EQ(kernels[0].kernel_binary_size, 512U);
+  ASSERT_TRUE(kernels[0].iga_platform.has_value());
+  EXPECT_EQ(*kernels[0].iga_platform, 0x02000000U);
   EXPECT_EQ(kernels[1].demangled_name, "Second");
 
   const ResolveRequest first_request = make_resolve_request(kernels[0]);
   const ResolveRequest second_request = make_resolve_request(kernels[1]);
   EXPECT_EQ(first_request.dwarf_file, "/tmp/first.dwarf");
+  ASSERT_TRUE(first_request.iga_platform.has_value());
+  EXPECT_EQ(*first_request.iga_platform, 0x02000000U);
   EXPECT_EQ(second_request.mangled_kernel_name, "_ZSecond");
 }
 
@@ -345,17 +349,13 @@ TEST(GdbIntelAdapterTest, RequiresAConfiguredExecutable) {
 
 #if defined(DPC_HAVE_IGA_ADAPTER)
 TEST(IgaAdapterTest, ResolvesDecodedInstructionsAndComparesWithVtune) {
-  const char* configured_platform = std::getenv("DPC_IGA_PLATFORM");
-  const std::optional<std::string> saved_platform =
-      configured_platform == nullptr ? std::nullopt : std::optional<std::string>(configured_platform);
-  ASSERT_EQ(setenv("DPC_IGA_PLATFORM", "0x02000000", 1), 0);
-
   auto adapter = make_iga_adapter();
   ResolveRequest request;
   request.dwarf_file = sample_dwarf_path();
   request.kernel_name = "(anonymous namespace)::PrimaryGEMMKernel";
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
   request.kernel_binary_size = 81152;
+  request.iga_platform = 0x02000000;
   request.reference_file = std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" / "source_locations.json";
 
   ASSERT_TRUE(adapter->supports(request));
@@ -386,11 +386,6 @@ TEST(IgaAdapterTest, ResolvesDecodedInstructionsAndComparesWithVtune) {
           }),
       0U);
 
-  if (saved_platform.has_value()) {
-    setenv("DPC_IGA_PLATFORM", saved_platform->c_str(), 1);
-  } else {
-    unsetenv("DPC_IGA_PLATFORM");
-  }
 }
 #endif
 

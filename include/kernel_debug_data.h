@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace dwarf_parser_check {
@@ -18,6 +19,7 @@ struct KernelDebugData {
   std::size_t module_native_binary_size = 0;
   bool kernel_binary_size_collected = false;
   std::size_t kernel_binary_size = 0;
+  std::optional<std::uint32_t> iga_platform;
 };
 
 }  // namespace dwarf_parser_check

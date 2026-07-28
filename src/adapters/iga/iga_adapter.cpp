@@ -74,23 +74,14 @@ std::string iga_status_message(iga_status_t status) {
   return message == nullptr ? "unknown IGA failure" : message;
 }
 
-std::optional<std::uint32_t> configured_iga_platform(std::string& error) {
-  const char* configured_value = std::getenv("DPC_IGA_PLATFORM");
-  if (configured_value == nullptr || *configured_value == '\0') {
-    error = "IGA target platform is not configured; set DPC_IGA_PLATFORM to an IGA platform value.";
+std::optional<std::uint32_t> request_iga_platform(
+    const ResolveRequest& request,
+    std::string& error) {
+  if (!request.iga_platform.has_value()) {
+    error = "kernel debug JSON is missing iga_platform.";
     return std::nullopt;
   }
-  try {
-    const unsigned long value = std::stoul(configured_value, nullptr, 0);
-    if (value > UINT32_MAX) {
-      error = "DPC_IGA_PLATFORM did not fit in an IGA platform value.";
-      return std::nullopt;
-    }
-    return static_cast<std::uint32_t>(value);
-  } catch (const std::exception&) {
-    error = "DPC_IGA_PLATFORM was not a valid integer.";
-    return std::nullopt;
-  }
+  return request.iga_platform;
 }
 
 std::optional<KernelText> load_kernel_text(
@@ -319,7 +310,7 @@ class IgaAdapter final : public DwarfAdapter {
     }
 
     std::string platform_error;
-    const std::optional<std::uint32_t> platform = configured_iga_platform(platform_error);
+    const std::optional<std::uint32_t> platform = request_iga_platform(request, platform_error);
     if (!platform.has_value()) {
       resolution.warnings.push_back(platform_error);
       return resolution;
