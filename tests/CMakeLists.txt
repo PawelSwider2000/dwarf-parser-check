@@ -45,3 +45,8 @@ if(CARGO_EXECUTABLE)
     COMMAND ${CARGO_EXECUTABLE} test --manifest-path ${CMAKE_SOURCE_DIR}/src/adapters/gimli/Cargo.toml --tests
   )
 endif()
+
+add_test(
+  NAME dwarf_check_shell_tests
+  COMMAND ${CMAKE_SOURCE_DIR}/tests/dwarf_check_test.sh
+)

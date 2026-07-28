@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
+DWARF_CHECK="$PROJECT_DIR/dwarf-check"
+
+fail() {
+  printf 'dwarf_check_test: %s\n' "$*" >&2
+  exit 1
+}
+
+expect_failure() {
+  local expected=$1
+  shift
+  local output
+  if output=$("$@" 2>&1); then
+    fail "expected command to fail: $*"
+  fi
+  [[ "$output" == *"$expected"* ]] || fail "missing error text: $expected"
+}
+
+help_output=$("$DWARF_CHECK" --help)
+[[ "$help_output" == *"adapter build"* ]] || fail "missing adapter build help"
+[[ "$help_output" == *"workload build"* ]] || fail "missing workload build help"
+expect_failure "unsupported debug mode: invalid" "$DWARF_CHECK" --debug invalid build
+expect_failure "unknown run option: --unexpected" "$DWARF_CHECK" run --unexpected
+
+temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/dwarf-check-test.XXXXXX")
+trap 'rm -rf "$temporary_dir"' EXIT
+expect_failure "$temporary_dir/artifacts/build/gemm/gline-O0/bin/gemm" \
+  "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --debug gline run
+
+mkdir -p "$temporary_dir/bin" "$temporary_dir/build" "$temporary_dir/result"
+manifest="$temporary_dir/kernel_debug.json"
+reference_csv="$temporary_dir/vtune_reference.csv"
+output_dir="$temporary_dir/adapter_reports"
+adapter_arguments="$temporary_dir/adapter_arguments.txt"
+printf '{}\n' > "$manifest"
+
+cat > "$temporary_dir/bin/vtune" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+  if [[ $1 == -report-output ]]; then
+    printf 'Address,Assembly\n0x0,nop\n' > "$2"
+    exit 0
+  fi
+  shift
+done
+exit 0
+EOF
+cat > "$temporary_dir/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+output=
+sidecar=
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --output)
+      output=$2
+      shift 2
+      ;;
+    --source-locations-output)
+      sidecar=$2
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+mkdir -p "$(dirname "$output")" "$(dirname "$sidecar")"
+printf 'Address,Source File,Source Line\n0x0,source.cpp,1\n' > "$output"
+printf '{"0x0":[["other.cpp",2]]}\n' > "$sidecar"
+EOF
+cat > "$temporary_dir/build/dwarf-parser-check" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$@" > "$DPC_TEST_ADAPTER_ARGUMENTS"
+EOF
+chmod +x "$temporary_dir/bin/vtune" "$temporary_dir/bin/python3" \
+  "$temporary_dir/build/dwarf-parser-check"
+
+DPC_TEST_ADAPTER_ARGUMENTS="$adapter_arguments" \
+PATH="$temporary_dir/bin:$PATH" \
+VTUNE_BIN="$temporary_dir/bin/vtune" \
+"$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --build-dir "$temporary_dir/build" analyze \
+  --result-dir "$temporary_dir/result" \
+  --kernel-debug-json "$manifest" \
+  --reference-csv "$reference_csv" \
+  --output-dir "$output_dir"
+
+grep -Fx -- "--reference" "$adapter_arguments" >/dev/null || fail "adapter did not receive a reference"
+grep -Fx -- "$reference_csv" "$adapter_arguments" >/dev/null || fail "adapter did not receive vtune_reference.csv"
+if grep -Fq 'source_locations.json' "$adapter_arguments"; then
+  fail "adapter received source_locations.json instead of vtune_reference.csv"
+fi

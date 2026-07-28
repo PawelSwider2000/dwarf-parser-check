@@ -1,299 +1,141 @@
 # dwarf-parser-check
 
-`dwarf-parser-check` is a command-line tool for resolving Intel GPU DWARF information back to source locations and comparing backend behavior.
+`dwarf-parser-check` resolves Intel GPU DWARF information to source locations
+and compares resolver output with VTune GPU PC-sampling data. The root
+[`dwarf-check`](dwarf-check) script is the single entry point for building the
+sample, collecting VTune data, and running resolver adapters.
 
-The repository currently contains:
+## Basic Workflow
 
-- a real Rust `gimli`/`addr2line` adapter
-- a common CLI, comparison layer, and adapter interface
-- C++ and Rust tests wired into CTest
+Build the selected SYCL workload and the resolver, collect VTune samples, then
+analyze the existing result:
 
-## What The Tool Does
+```bash
+./dwarf-check build run
+./dwarf-check analyze
+```
 
-Given a DWARF-bearing GPU module and kernel metadata, the tool resolves every
-available instruction address for each kernel in the manifest. It:
+`build` compiles the workload and `dwarf-parser-check`. `run` executes the
+workload to create `kernel_debug.json`, then collects a `gpu-hotspots` VTune
+result using source-analysis stall sampling. `analyze` uses the existing
+manifest and VTune result to generate a direct address-to-source reference and
+run the selected adapters. It never starts VTune collection implicitly.
 
-- resolves instruction addresses to file, line, and optional column
-- reports the backend used for resolution
-- can compare results against a VTune-style reference file
-- allows multiple adapters to be selected at runtime
+Run `./dwarf-check --help` for the complete command reference.
 
-For the Rust `gimli` adapter, kernel metadata identifies the JSON-selected
-DWARF module and symbol information used to enumerate instruction addresses
-and resolve them back to source lines.
+## Commands
 
-## Current CLI
+```bash
+./dwarf-check adapter build    # Configure and build dwarf-parser-check.
+./dwarf-check workload build   # Build the selected SYCL workload only.
+./dwarf-check build            # Build the workload and resolver.
+./dwarf-check run              # Run the workload and collect VTune samples.
+./dwarf-check analyze          # Generate the VTune reference and adapter reports.
+./dwarf-check test             # Run CTest and Rust gimli adapter tests.
+```
 
-The program accepts:
+The workload, VTune collection, and resolver stages are independent. After a
+successful collection, rerun `analyze` to iterate on adapters without
+repeating the hardware profiling run.
 
-- `--kernel-debug-json <PATH>`: metadata JSON written by `simple_sycl_vtune.cpp`; this supplies the DWARF path and both kernel names
-- `--adapters <LIST>`: comma-separated adapter names or `all`
-- `--reference <PATH>`: optional legacy reference, VTune `source_locations.json`, or VTune address-report CSV for comparison
-- `--output-dir <PATH>`: directory for one CSV resolution report and one comparison JSON report per selected adapter
-- `--help`, `-h`: show usage
+## Configuration
 
-`--kernel-debug-json` and `--output-dir` are required. The tool resolves every kernel and all
-enumerated instruction addresses in the manifest.
-Resolved addresses are reported as offsets from the beginning of each kernel.
+Global options must precede the first command:
 
-## Why Both Kernel Names Exist
+```bash
+./dwarf-check --workload gemm --debug g --opt O0 --artifact-dir artifacts build run
+./dwarf-check analyze --adapters all
+```
 
-The tool treats these as separate concepts:
+Defaults:
 
-- `demangled_name` is the user-facing name shown in output and used by comparison logic
-- `mangled_name` is the exact raw selector used by adapters when they enumerate kernel IPs from symbols
+| Setting | Default |
+| --- | --- |
+| `--workload` | `gemm` |
+| `--debug` | `g` (`g`, `gline`, or `none`) |
+| `--opt` | `O0` (`O0`, `O1`, or `O2`) |
+| `--artifact-dir` | `artifacts` |
+| `--build-dir` | `build` |
 
-This split exists because the user-facing label does not always uniquely identify a raw symbol.
-
-The included standalone sample's display name is `(anonymous namespace)::PrimaryGEMMKernel`; its selector is:
+These paths are derived from the selected workload and configuration:
 
 ```text
-_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE
+WORKLOAD_BUILD_DIR=<artifact-dir>/build/<workload>/<debug>-<opt>
+WORKLOAD_RESULTS_DIR=<artifact-dir>/results/<workload>/<debug>-<opt>
+KERNEL_DEBUG_JSON=<results-dir>/kernel_debug.json
+VTUNE_RESULT_DIR=<results-dir>/vtune_results
+VTUNE_REFERENCE_CSV=<results-dir>/vtune_reference.csv
 ```
 
-## Example Commands
+`WORKLOAD_BUILD_DIR`, `WORKLOAD_RESULTS_DIR`, `KERNEL_DEBUG_JSON`,
+`VTUNE_RESULT_DIR`, and `VTUNE_REFERENCE_CSV` remain usable as environment
+overrides. `BUILD_TYPE`, `CMAKE_GENERATOR`, `GDB_ADDR2LINE`, `VTUNE_BIN`,
+`VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, and `READELF_BIN` are also
+environment-controlled.
 
-Resolve every address from the metadata generated by the SYCL sample:
+`run` requires an already-built workload binary and unrestricted ptrace access
+for VTune. `analyze` requires both an existing VTune result and manifest.
+
+## Output
+
+`analyze` creates `vtune_reference.csv` and passes it to the resolver as the
+sole comparison reference. It also retains `source_locations.json` as a
+diagnostic sidecar, but does not use that JSON file for comparisons.
+
+For each selected adapter, the output directory contains a resolution CSV and
+a comparison JSON report. The default output directory is
+`WORKLOAD_RESULTS_DIR`; override it with `analyze --output-dir PATH`.
+
+## Direct Resolver CLI
+
+The compiled resolver accepts a manifest, adapter selection, optional
+reference, and report output directory:
 
 ```bash
 ./build/dwarf-parser-check \
-  --kernel-debug-json artifacts/simple_sycl_vtune_kernel_debug.json \
-  --adapters rust-gimli \
-  --output-dir artifacts
-```
-
-Run with all compiled adapters:
-
-```bash
-./build/dwarf-parser-check \
-  --kernel-debug-json artifacts/simple_sycl_vtune_kernel_debug.json \
+  --kernel-debug-json artifacts/results/gemm/g-O0/kernel_debug.json \
   --adapters all \
-  --output-dir artifacts
+  --output-dir artifacts/results/gemm/g-O0 \
+  --reference artifacts/results/gemm/g-O0/vtune_reference.csv
 ```
 
-## Output Shape
-
-The tool prints results grouped by backend.
-
-Current output includes:
-
-- backend name
-- kernel name
-- warnings, if any
-- resolved locations in the form `kernel_offset -> file:line[:column]`
-- optional backend notes such as the resolved function name
-
-Example shape:
-
-```text
-backend: rust-gimli
-kernel: (anonymous namespace)::PrimaryGEMMKernel
-  - 0xffff8000fff86d00 -> /path/to/simple_sycl_vtune.cpp:211
-```
-
-The tool no longer prints or exposes a `user/system/unknown` path kind. Source file and line resolution still comes from DWARF and `addr2line`, but no additional path-kind label is reported in the common output.
-
-## Current Adapter Behavior
-
-### rust-gimli
-
-The Rust adapter lives under [src/adapters/gimli](src/adapters/gimli).
-
-Current behavior:
-
-- builds an `addr2line::Context` from the input object
-- resolves source locations with `find_frames`
-- enumerates every instruction address for each manifest kernel
-- uses DWARF subprogram ownership logic to step from wrapper-adjacent symbols back to user code when needed
-
-Important implementation notes:
-
-- source file/line selection is driven by DWARF and `addr2line`
-- JSON `mangled_name` is used for symbol matching during IP enumeration
-- the sample selector is `_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE`
-
-### iga
-
-The IGA adapter lives under [src/adapters/iga](src/adapters/iga) and uses the
-in-process Intel Graphics Assembler C API together with `libelf` and `libdw`.
-It does not execute IGA, `addr2line`, or any other command. It extracts the
-selected kernel's runtime-size span from its ELF text section, validates
-candidate instruction boundaries with IGA, and resolves the decoded PCs through
-DWARF.
-
-IGA requires the exact target ISA. The workload generator reads the selected
-Level Zero device's IP version, maps it to IGA's platform encoding, and records
-the result as each kernel's numeric `iga_platform` value. The adapter returns a
-warning without invoking IGA when the manifest omits that value. This is
-intentional: guessing a platform can misdecode GPU code or hang older IGA
-runtimes on newer hardware captures.
-
-## Adapter Selection
-
-The CLI supports dynamic adapter selection based on compiled adapters.
-
-Examples:
-
-```bash
---adapters rust-gimli
---adapters all
-```
-
-Whitespace around comma-separated adapter names is accepted.
-
-## Reference Comparison
-
-When `--reference` is provided, the tool loads reference locations for the JSON `demangled_name` and compares them against the selected backend output.
-
-The comparison layer checks:
-
-- matching IPs
-- file path equality
-- line equality
-- optional column equality
-- missing entries on either side
-
-VTune may provide multiple source locations for one instruction offset. The
-comparison preserves every candidate and reports a match when the adapter
-location matches any candidate for that offset.
-
-## Workflow Script
-
-Use the root [`dpc.sh`](dpc.sh) script for the normal workflow:
-
-```bash
-./dpc.sh clean
-./dpc.sh build
-./dpc.sh test
-./dpc.sh run
-```
-
-`clean` removes the CMake build directory. `run` rebuilds, resolves the
-configured manifest, and writes one pair of reports per adapter. For example,
-the `rust-gimli` adapter writes
-`artifacts/adapter_rust-gimli_result_dwarf_parser.csv` and
-`artifacts/adapter_rust-gimli_vtune_comparison.json`.
-It keeps individual address resolutions out of the terminal and instead prints
-the kernel count and output directory. The resolution data remains in the
-per-adapter CSV files. Set `REFERENCE_FILE` to a VTune `source_locations.json`
-path or a VTune address-report CSV to include per-adapter comparison results.
-By default, `dpc.sh` compares against the direct VTune address report at
-`artifacts/results/<workload>/<configuration>/vtune_reference.csv`. This uses
-the same direct DWARF locations reported by the adapters. Set `REFERENCE_FILE`
-to `source_locations.json` only when comparing the user-source projection;
-that projection intentionally remaps compiler and SYCL-header locations to
-their highest workload caller.
-When the default manifest is absent, `run` generates it through
-`data_generation/make_reference` and saves it as
-`artifacts/results/gemm/g-O0/kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
-`OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `BUILD_DIR`, or `BUILD_TYPE` to
-override those defaults. The included Xe2 sample records `iga_platform` as
-`0x02000000` in its kernel debug manifest.
-`./dpc.sh all` performs the full
-clean, build, test, and whole-kernel resolution sequence.
-
-## Sample And VTune Workflow
-
-The SYCL GEMM sample and its collection workflow live in
-`data_generation/`. Generate the sample metadata and an optional VTune
-reference with:
-
-```bash
-./data_generation/make_reference build run vtune_run analyze
-```
-
-The commands run in order. `build` compiles the sample, `run` writes
-`artifacts/results/gemm/g-O0/kernel_debug.json`, `vtune_run` collects GPU PC
-samples, and `analyze` writes `artifacts/results/gemm/g-O0/vtune_reference.csv`
-plus `artifacts/results/gemm/g-O0/source_locations.json`. The `run` stage calls
-`dpc.sh` to create
-per-adapter parser reports; after `analyze` creates the VTune sidecar, it calls
-`dpc.sh` again to refresh the per-adapter comparison reports.
-
-To rerun that final comparison without collecting VTune data again, use
-`dpc.sh` directly:
-
-```bash
-REFERENCE_FILE=artifacts/results/gemm/g-O0/source_locations.json \
-OUTPUT_DIR=artifacts/results/gemm/g-O0 \
-ADAPTERS=all \
-./dpc.sh run
-```
-
-The report includes every resolution, every adapter comparison, and
-diagnostics. A comparison item is `match`, `file_mismatch`, `line_mismatch`,
-`column_mismatch`, `missing_in_reference`, or `missing_in_backend`.
-
-The manifest records each created kernel's names, Level Zero handles, runtime
-base address, module binary size, kernel binary size, and saved ELF/DWARF path.
-The kernel binary size comes from `zeKernelGetBinaryExp`; it is `null` if the
-driver query fails.
-
-Set `TOTAL_LOOPS` or `MATRIX_SIZE` to configure the sample. `VTUNE_BIN`,
-`VTUNE_RESULT_DIR`, `VTUNE_COMPUTING_TASK`, `VTUNE_ZEBIN`, and `READELF_BIN`
-configure VTune collection and correlation. `analyze` uses the `.zebin` DWARF
-line table to correlate VTune binary offsets with source locations; when a
-single source location cannot be attributed directly, its JSON sidecar records
-the reachable user call sites.
-
-## Manual Build
-
-Prerequisites:
-
-- CMake
-- Ninja is recommended
-- a C++20-capable compiler
-- Rust toolchain for the Rust `gimli` adapter
-
-Typical commands:
-
-```bash
-cmake -S . -B build -G Ninja
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
-
-Show CLI help:
-
-```bash
-./build/dwarf-parser-check --help
-```
+The manifest contains each kernel's demangled display name, mangled symbol
+selector, ELF/DWARF path, and runtime metadata. Resolved instruction addresses
+are reported as offsets from the beginning of each kernel.
 
 ## Tests
 
-The repository currently includes:
-
-- C++ GTests for CLI, adapter selection, and end-to-end adapter behavior
-- Rust integration tests for the `gimli` adapter FFI surface
-- Rust internal tests for helper logic and DWARF ownership behavior
-- CTest integration that runs the Rust test suite
-
-Run everything:
-
 ```bash
-ctest --test-dir build --output-on-failure
-cargo test --manifest-path src/adapters/gimli/Cargo.toml --tests
+./dwarf-check test
 ```
 
-`data_generation/make_reference run` runs this JSON-based resolver command
-after it generates the sample artifact. Use `data_generation/make_reference
-build run` to build the sample first, and set `PARSER_BIN` to use a parser
-binary at a different path.
+This builds the resolver, runs CTest with output on failure, and then runs the
+Rust gimli adapter tests directly. The shell-level CTest verifies command
+parsing, derived paths, required-input failures, and that adapter comparisons
+use `vtune_reference.csv` rather than `source_locations.json`.
+
+## Prerequisites
+
+- CMake and Ninja
+- a C++20 compiler
+- Rust and Cargo for the gimli adapter
+- oneAPI `icpx` and Level Zero for workload builds
+- VTune for `run` and `analyze`
 
 ## Project Layout
 
 ```text
 .
-├── CMakeLists.txt
-├── README.md
-├── include/
-├── src/
-│   ├── main.cpp
-│   ├── cli.cpp
-│   ├── core.cpp
-│   ├── compare.cpp
-│   └── adapters/
-├── tests/
+├── CMakeLists.txt              # CMake build and test configuration
+├── README.md                   # Project and workflow documentation
+├── dwarf-check                 # Unified build, collection, analysis, and test entry point
+├── include/                    # Public C++ interfaces
+├── src/                        # Resolver CLI, core logic, comparison, and adapters
+│   └── adapters/               # gimli, IGA, and GDB Intel adapter implementations
 ├── data_generation/
-└── artifacts/
+│   ├── correlate_vtune_report.py  # VTune address-to-source correlation
+│   ├── kernel_debug_info.*        # Workload manifest generation
+│   └── workloads/                 # SYCL workloads, including gemm
+├── tests/                      # C++, Rust, and shell regression tests
+└── artifacts/                  # Generated workload, VTune, and adapter reports
 ```
