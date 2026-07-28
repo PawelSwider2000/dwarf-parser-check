@@ -11,7 +11,6 @@ WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-g-O0}
 WORKLOAD_RESULTS_DIR=${WORKLOAD_RESULTS_DIR:-"$ARTIFACT_DIR/results/$WORKLOAD/$WORKLOAD_CONFIGURATION"}
 DEFAULT_KERNEL_DEBUG_JSON="$WORKLOAD_RESULTS_DIR/kernel_debug.json"
 KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-"$DEFAULT_KERNEL_DEBUG_JSON"}
-OUTPUT_DIR=${OUTPUT_DIR:-"$WORKLOAD_RESULTS_DIR"}
 REFERENCE_FILE=${REFERENCE_FILE:-"$WORKLOAD_RESULTS_DIR/vtune_reference.csv"}
 ADAPTERS=${ADAPTERS:-all}
 GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-intelgt/binutils/addr2line"}
@@ -42,7 +41,6 @@ Environment:
   WORKLOAD_RESULTS_DIR
                     Workload result directory (default: artifacts/results/<workload>/<configuration>)
   KERNEL_DEBUG_JSON  Kernel debug manifest for run (default: <results>/kernel_debug.json)
-  OUTPUT_DIR         Directory for per-adapter CSV and JSON reports (default: <results>)
   REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV (default: <results>/vtune_reference.csv)
   ADAPTERS           Adapter selection for run (default: all)
   GDB_ADDR2LINE      IntelGT-aware addr2line executable used by gdb-intel
@@ -98,11 +96,11 @@ run() {
   build
   ensure_kernel_debug_json
 
-  mkdir -p "$OUTPUT_DIR"
+  mkdir -p "$WORKLOAD_RESULTS_DIR"
   local resolver_args=(
     --kernel-debug-json "$KERNEL_DEBUG_JSON"
     --adapters "$ADAPTERS"
-    --output-dir "$OUTPUT_DIR"
+    --output-dir "$WORKLOAD_RESULTS_DIR"
   )
   if [[ -n "$REFERENCE_FILE" ]]; then
     if [[ ! -f "$REFERENCE_FILE" ]]; then
@@ -120,7 +118,7 @@ run() {
   local kernel_count
   kernel_count=$(grep -c '"mangled_name"' "$KERNEL_DEBUG_JSON" || true)
   log "run: kernel metadata JSON: $KERNEL_DEBUG_JSON ($kernel_count kernel(s))"
-  log "run: per-adapter reports saved to $OUTPUT_DIR"
+  log "run: per-adapter reports saved to $WORKLOAD_RESULTS_DIR"
   if [[ -n "$REFERENCE_FILE" ]]; then
     log "run: compared with reference $REFERENCE_FILE"
   fi
