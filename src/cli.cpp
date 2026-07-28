@@ -130,6 +130,24 @@ void write_json_string_array(
   output << std::string(indent, ' ') << ']';
 }
 
+void write_json_hex_array(
+    const std::vector<std::uint64_t>& values,
+    std::ostream& output,
+    std::size_t indent) {
+  if (values.empty()) {
+    output << "[]";
+    return;
+  }
+
+  output << "[\n";
+  const std::string value_indent(indent + 2U, ' ');
+  for (std::size_t index = 0; index < values.size(); ++index) {
+    output << value_indent << '"' << format_hex(values[index]) << '"';
+    output << (index + 1U == values.size() ? '\n' : ',') << '\n';
+  }
+  output << std::string(indent, ' ') << ']';
+}
+
 void write_location_json(
     const Location& location,
     std::ostream& output,
@@ -290,8 +308,17 @@ void write_report_json(const ResolveReport& report, std::ostream& output) {
   for (std::size_t comparison_index = 0; comparison_index < report.comparisons.size(); ++comparison_index) {
     const ComparisonReport& comparison = report.comparisons[comparison_index];
     std::size_t status_counts[6] = {};
+    std::vector<std::uint64_t> matched_ips;
+    std::vector<const ComparisonItem*> mismatches;
     for (const ComparisonItem& item : comparison.items) {
       ++status_counts[static_cast<std::size_t>(item.status)];
+      if (item.status == ComparisonStatus::kMatch) {
+        if (item.resolved.has_value()) {
+          matched_ips.push_back(item.resolved->location.ip);
+        }
+      } else {
+        mismatches.push_back(&item);
+      }
     }
     output << "    {\n"
            << "      \"backend\": \"" << json_escape(comparison.backend_name) << "\",\n"
@@ -306,12 +333,15 @@ void write_report_json(const ResolveReport& report, std::ostream& output) {
            << "        \"missing_in_reference\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kMissingInReference)] << ",\n"
            << "        \"missing_in_backend\": " << status_counts[static_cast<std::size_t>(ComparisonStatus::kMissingInBackend)] << "\n"
            << "      },\n"
+           << "      \"matched_ips\": ";
+    write_json_hex_array(matched_ips, output, 6U);
+    output << ",\n"
            << "      \"items\": [";
-    if (!comparison.items.empty()) {
+    if (!mismatches.empty()) {
       output << '\n';
     }
-    for (std::size_t item_index = 0; item_index < comparison.items.size(); ++item_index) {
-      const ComparisonItem& item = comparison.items[item_index];
+    for (std::size_t item_index = 0; item_index < mismatches.size(); ++item_index) {
+      const ComparisonItem& item = *mismatches[item_index];
       output << "        {\n"
              << "          \"status\": \"" << comparison_status_name(item.status) << "\",\n"
              << "          \"resolved\": ";
@@ -329,7 +359,7 @@ void write_report_json(const ResolveReport& report, std::ostream& output) {
       output << ",\n          \"notes\": ";
       write_json_string_array(item.notes, output, 10U);
       output << "\n        }";
-      output << (item_index + 1U == comparison.items.size() ? '\n' : ',') << '\n';
+      output << (item_index + 1U == mismatches.size() ? '\n' : ',') << '\n';
     }
     output << "      ]\n    }";
     if (comparison_index + 1U != report.comparisons.size()) output << ',';

@@ -162,6 +162,11 @@ TEST(CliTest, WritesComparisonReportAsJson) {
   item.status = ComparisonStatus::kMissingInReference;
   item.notes.push_back("missing reference");
   comparison.items.push_back(std::move(item));
+
+  ComparisonItem match;
+  match.resolved = location;
+  match.reference = location.location;
+  comparison.items.push_back(std::move(match));
   report.comparisons.push_back(std::move(comparison));
 
   std::ostringstream output;
@@ -174,6 +179,9 @@ TEST(CliTest, WritesComparisonReportAsJson) {
   EXPECT_NE(output.str().find("\"summary\": {"), std::string::npos);
   EXPECT_NE(output.str().find("source\\\"file.cpp"), std::string::npos);
   EXPECT_NE(output.str().find("\"missing_in_reference\""), std::string::npos);
+  EXPECT_NE(output.str().find("\"matched_ips\""), std::string::npos);
+  EXPECT_NE(output.str().find("\"0x40\""), std::string::npos);
+  EXPECT_EQ(output.str().find("\"status\": \"match\""), std::string::npos);
 }
 
 TEST(CliTest, RejectsLegacyMetadataOptions) {
