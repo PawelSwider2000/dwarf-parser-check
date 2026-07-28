@@ -8,15 +8,17 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/../artifacts"}
 WORKLOAD=${WORKLOAD:-gemm}
 WORKLOAD_DIR="$SCRIPT_DIR/workloads/$WORKLOAD"
-WORKLOAD_BUILD_DIR="$ARTIFACT_DIR/build/$WORKLOAD/$DEBUG_MODE-$OPT_LEVEL"
-BIN_PATH="$WORKLOAD_BUILD_DIR/bin/$WORKLOAD"
-JSON_PATH="$ARTIFACT_DIR/simple_sycl_vtune_kernel_debug.json"
-VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-"$ARTIFACT_DIR/vtune_pc_sampling"}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
-VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-"$ARTIFACT_DIR/result_vtune_reference.csv"}
-VTUNE_SOURCE_LOCATIONS_JSON=${VTUNE_SOURCE_LOCATIONS_JSON:-"$ARTIFACT_DIR/source_locations.json"}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
-USER_SOURCE_ROOT=${USER_SOURCE_ROOT:-"$SCRIPT_DIR"}
+
+WORKLOAD_CONFIGURATION="$DEBUG_MODE-$OPT_LEVEL"
+WORKLOAD_BUILD_DIR="$ARTIFACT_DIR/build/$WORKLOAD/$WORKLOAD_CONFIGURATION"
+WORKLOAD_RESULTS_DIR="$ARTIFACT_DIR/results/$WORKLOAD/$WORKLOAD_CONFIGURATION"
+BIN_PATH="$WORKLOAD_BUILD_DIR/bin/$WORKLOAD"
+KERNEL_DEBUG_JSON="$WORKLOAD_RESULTS_DIR/kernel_debug.json"
+VTUNE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/vtune_results"
+VTUNE_REFERENCE_CSV="$WORKLOAD_RESULTS_DIR/vtune_reference.csv"
+VTUNE_SOURCE_LOCATIONS_JSON="$WORKLOAD_RESULTS_DIR/source_locations.json"
 
 log() {
   printf '[make_reference] %s\n' "$*"
@@ -40,16 +42,17 @@ Configuration is provided through environment variables:
   ARTIFACT_DIR      Generated-artifact directory
   WORKLOAD          Workload directory name (default: gemm)
   WORKLOAD_BUILD_DIR
-                      CMake build directory (default: artifacts/build/<debug>-<opt>)
+                      CMake build directory (default: artifacts/build/<workload>/<debug>-<opt>)
+  WORKLOAD_RESULTS_DIR
+                      Result directory (default: artifacts/results/<workload>/<debug>-<opt>)
+  KERNEL_DEBUG_JSON Output kernel debug metadata path
   VTUNE_RESULT_DIR  VTune result directory
   VTUNE_COMPUTING_TASK
                       GPU computing task to analyze (default: PrimaryGEMMKernel)
-  VTUNE_REFERENCE_CSV
-                      Output CSV path (default: artifacts/result_vtune_reference.csv)
+  VTUNE_REFERENCE_CSV Output CSV path
   VTUNE_SOURCE_LOCATIONS_JSON
                       Per-IP highest user locations JSON output path
   VTUNE_TARGET_GPU  Comma-separated PCI GPU adapter IDs to profile
-  USER_SOURCE_ROOT    Root directory used to identify user source files
 EOF
 }
 
@@ -77,14 +80,15 @@ run() {
     echo "sample binary not found or not executable: $BIN_PATH; run 'build' first" >&2
     return 1
   fi
+  mkdir -p "$WORKLOAD_RESULTS_DIR"
 
   (
     cd "$ARTIFACT_DIR"
     ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-    "$BIN_PATH" "$JSON_PATH"
+    "$BIN_PATH" "$KERNEL_DEBUG_JSON"
   )
 
-  log "run: json: $JSON_PATH"
+  log "run: kernel debug metadata: $KERNEL_DEBUG_JSON"
 }
 
 vtune_run() {
@@ -115,7 +119,7 @@ vtune_run() {
   if [[ -n "$VTUNE_TARGET_GPU" ]]; then
     vtune_args+=(-knob "target-gpu=$VTUNE_TARGET_GPU")
   fi
-  vtune_args+=(-- "$BIN_PATH" "$JSON_PATH")
+  vtune_args+=(-- "$BIN_PATH" "$KERNEL_DEBUG_JSON")
 
   vtune "${vtune_args[@]}"
 
@@ -147,7 +151,7 @@ analyze() {
     --output "$VTUNE_REFERENCE_CSV"
     --result-dir "$VTUNE_RESULT_DIR"
     --source-locations-output "$VTUNE_SOURCE_LOCATIONS_JSON"
-    --user-source-root "$USER_SOURCE_ROOT"
+    --user-source-root "$WORKLOAD_DIR"
   )
   if ! python3 "$SCRIPT_DIR/correlate_vtune_report.py" "${correlate_args[@]}"; then
     rm -f "$raw_report"
@@ -207,6 +211,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
 if [[ $# -eq 0 ]]; then
   usage >&2
   exit 1
