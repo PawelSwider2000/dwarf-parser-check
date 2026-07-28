@@ -25,9 +25,9 @@ struct Config {
 
 class PrimaryGEMMKernel;
 
-void InitLevelZeroModuleDebugCollection() {
+void InitLevelZeroModuleDebugCollection(const Config &config) {
   std::cout << "[host] enabling Level Zero module debug collection\n";
-  InitKernelTracer();
+  InitKernelTracer(std::filesystem::absolute(config.jsonOutputPath).parent_path());
 }
 
 void ShutdownLevelZeroModuleDebugCollection() {
@@ -236,7 +236,7 @@ int main(int argc, char *argv[]) {
   std::cout << "[host] device: "
             << queue.get_device().get_info<sycl::info::device::name>() << "\n\n";
 
-  InitLevelZeroModuleDebugCollection();
+  InitLevelZeroModuleDebugCollection(config);
   for (int iteration = 0; iteration < kTotalLoops; ++iteration) {
     std::cout << "[host] >>> submitting iteration " << iteration << "\n";
     const bool ok = RunGEMMWorkload<PrimaryGEMMKernel>(

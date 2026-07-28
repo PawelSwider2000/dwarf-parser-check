@@ -176,9 +176,15 @@ It keeps individual address resolutions out of the terminal and instead prints
 the kernel count and output directory. The resolution data remains in the
 per-adapter CSV files. Set `REFERENCE_FILE` to a VTune `source_locations.json`
 path or a VTune address-report CSV to include per-adapter comparison results.
+By default, `dpc.sh` compares against the direct VTune address report at
+`artifacts/results/<workload>/<configuration>/vtune_reference.csv`. This uses
+the same direct DWARF locations reported by the adapters. Set `REFERENCE_FILE`
+to `source_locations.json` only when comparing the user-source projection;
+that projection intentionally remaps compiler and SYCL-header locations to
+their highest workload caller.
 When the default manifest is absent, `run` generates it through
 `data_generation/make_reference` and saves it as
-`artifacts/simple_sycl_vtune_kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
+`artifacts/results/gemm/g-O0/kernel_debug.json`. Set `KERNEL_DEBUG_JSON`,
 `OUTPUT_DIR`, `REFERENCE_FILE`, `ADAPTERS`, `IGA_PLATFORM`, `BUILD_DIR`, or
 `BUILD_TYPE` to override those defaults. `IGA_PLATFORM` is passed to the IGA
 adapter as `DPC_IGA_PLATFORM`; the included Xe2 sample defaults to `0x02000000`.
@@ -196,9 +202,10 @@ reference with:
 ```
 
 The commands run in order. `build` compiles the sample, `run` writes
-`artifacts/simple_sycl_vtune_kernel_debug.json`, `vtune_run` collects GPU PC
-samples, and `analyze` writes `artifacts/result_vtune_reference.csv` plus
-`artifacts/source_locations.json`. The `run` stage calls `dpc.sh` to create
+`artifacts/results/gemm/g-O0/kernel_debug.json`, `vtune_run` collects GPU PC
+samples, and `analyze` writes `artifacts/results/gemm/g-O0/vtune_reference.csv`
+plus `artifacts/results/gemm/g-O0/source_locations.json`. The `run` stage calls
+`dpc.sh` to create
 per-adapter parser reports; after `analyze` creates the VTune sidecar, it calls
 `dpc.sh` again to refresh the per-adapter comparison reports.
 
@@ -206,8 +213,8 @@ To rerun that final comparison without collecting VTune data again, use
 `dpc.sh` directly:
 
 ```bash
-REFERENCE_FILE=artifacts/source_locations.json \
-OUTPUT_DIR=artifacts \
+REFERENCE_FILE=artifacts/results/gemm/g-O0/source_locations.json \
+OUTPUT_DIR=artifacts/results/gemm/g-O0 \
 ADAPTERS=all \
 ./dpc.sh run
 ```

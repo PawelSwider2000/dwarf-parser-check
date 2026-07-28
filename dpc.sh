@@ -5,10 +5,14 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 BUILD_DIR=${BUILD_DIR:-"$SCRIPT_DIR/build"}
 BUILD_TYPE=${BUILD_TYPE:-Debug}
 CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
-DEFAULT_KERNEL_DEBUG_JSON="$SCRIPT_DIR/artifacts/simple_sycl_vtune_kernel_debug.json"
+ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
+WORKLOAD=${WORKLOAD:-gemm}
+WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-g-O0}
+WORKLOAD_RESULTS_DIR=${WORKLOAD_RESULTS_DIR:-"$ARTIFACT_DIR/results/$WORKLOAD/$WORKLOAD_CONFIGURATION"}
+DEFAULT_KERNEL_DEBUG_JSON="$WORKLOAD_RESULTS_DIR/kernel_debug.json"
 KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-"$DEFAULT_KERNEL_DEBUG_JSON"}
-OUTPUT_DIR=${OUTPUT_DIR:-"$SCRIPT_DIR/artifacts"}
-REFERENCE_FILE=${REFERENCE_FILE:-"$SCRIPT_DIR/artifacts/result_vtune_reference.csv"}
+OUTPUT_DIR=${OUTPUT_DIR:-"$WORKLOAD_RESULTS_DIR"}
+REFERENCE_FILE=${REFERENCE_FILE:-"$WORKLOAD_RESULTS_DIR/vtune_reference.csv"}
 ADAPTERS=${ADAPTERS:-all}
 IGA_PLATFORM=${IGA_PLATFORM:-0x02000000}
 GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-intelgt/binutils/addr2line"}
@@ -32,9 +36,15 @@ Environment:
   BUILD_DIR          CMake build directory (default: build)
   BUILD_TYPE         CMake build type (default: Debug)
   CMAKE_GENERATOR    CMake generator (default: Ninja)
-  KERNEL_DEBUG_JSON  Kernel debug manifest for run (default: artifacts/simple_sycl_vtune_kernel_debug.json)
-  OUTPUT_DIR         Directory for per-adapter CSV and JSON reports (default: artifacts)
-  REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV
+  ARTIFACT_DIR       Generated-artifact directory (default: artifacts)
+  WORKLOAD           Workload name (default: gemm)
+  WORKLOAD_CONFIGURATION
+                    Workload result configuration (default: g-O0)
+  WORKLOAD_RESULTS_DIR
+                    Workload result directory (default: artifacts/results/<workload>/<configuration>)
+  KERNEL_DEBUG_JSON  Kernel debug manifest for run (default: <results>/kernel_debug.json)
+  OUTPUT_DIR         Directory for per-adapter CSV and JSON reports (default: <results>)
+  REFERENCE_FILE     Optional VTune source_locations.json or address-report CSV (default: <results>/vtune_reference.csv)
   ADAPTERS           Adapter selection for run (default: all)
   IGA_PLATFORM       IGA target platform passed to the IGA adapter (default: 0x02000000, Xe2)
   GDB_ADDR2LINE      IntelGT-aware addr2line executable used by gdb-intel

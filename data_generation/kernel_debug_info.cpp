@@ -22,6 +22,7 @@ namespace {
 
 std::mutex gDebugDataMutex;
 std::vector<KernelDebugData> gKernelDebugData;
+std::filesystem::path gArtifactDirectory;
 zel_tracer_handle_t gTracer = nullptr;
 ZexKernelGetBaseAddress_t gZexKernelGetBaseAddress = nullptr;
 
@@ -43,10 +44,6 @@ std::string DemangleKernelName(const std::string &mangledName) {
   return demangledName;
 }
 
-std::string GetAbsoluteArtifactPath(const std::string &fileName) {
-  return std::filesystem::absolute(fileName).string();
-}
-
 void StoreKernelDebugData(KernelDebugData dbg) {
   std::lock_guard<std::mutex> lock(gDebugDataMutex);
   gKernelDebugData.push_back(std::move(dbg));
@@ -54,18 +51,19 @@ void StoreKernelDebugData(KernelDebugData dbg) {
 
 std::string WriteKernelDwarfFile(const std::string &kernelName,
                                  const std::vector<uint8_t> &debugInfo) {
-  std::string dwarfFileName = kernelName + ".dwarf";
-  std::ofstream dwarfFile(dwarfFileName, std::ios::binary | std::ios::trunc);
+  const std::filesystem::path dwarfFilePath =
+      gArtifactDirectory / (kernelName + ".dwarf");
+  std::ofstream dwarfFile(dwarfFilePath, std::ios::binary | std::ios::trunc);
   if (!dwarfFile) {
-    std::cerr << "[tracer] WARNING: Failed to open " << dwarfFileName
+    std::cerr << "[tracer] WARNING: Failed to open " << dwarfFilePath
               << " for writing\n";
     return "";
   }
 
   dwarfFile.write(reinterpret_cast<const char *>(debugInfo.data()),
                   static_cast<std::streamsize>(debugInfo.size()));
-  std::cout << "[tracer] Saved ELF/DWARF image to " << dwarfFileName << "\n";
-  return GetAbsoluteArtifactPath(dwarfFileName);
+  std::cout << "[tracer] Saved ELF/DWARF image to " << dwarfFilePath << "\n";
+  return std::filesystem::absolute(dwarfFilePath).string();
 }
 
 void OnExitKernelCreate(ze_kernel_create_params_t *params,
@@ -157,7 +155,8 @@ void OnExitKernelCreate(ze_kernel_create_params_t *params,
 
 } // namespace
 
-void InitKernelTracer() {
+void InitKernelTracer(const std::filesystem::path &artifactDirectory) {
+  gArtifactDirectory = artifactDirectory;
   ze_driver_handle_t driver = nullptr;
   uint32_t driverCount = 1;
   if (zeDriverGet(&driverCount, &driver) == ZE_RESULT_SUCCESS &&
