@@ -58,6 +58,8 @@ Global options must appear before the first command:
 
 Commands:
   adapter build         Configure and build dwarf-parser-check.
+    --adapter NAME      Build only the named adapter(s) (gimli-rust, iga, gdb-intel);
+                        may be repeated; omit to build all.
   workload build        Build the selected SYCL workload.
   build                 Build the workload and dwarf-parser-check.
   run                   Run the workload, write its manifest, and collect VTune samples.
@@ -179,13 +181,53 @@ parse_global_options() {
 }
 
 adapter_build() {
-  if [[ ! -x "$GDB_ADDR2LINE" ]]; then
+  local adapters_requested=
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --adapter)
+        [[ $# -ge 2 ]] || die "adapter build --adapter requires a name"
+        adapters_requested="${adapters_requested:+$adapters_requested,}$2"
+        shift 2
+        ;;
+      *)
+        die "unknown adapter build option: $1"
+        ;;
+    esac
+  done
+
+  local enable_gimli=ON enable_iga=ON enable_gdb=ON
+  if [[ -n "$adapters_requested" ]]; then
+    enable_gimli=OFF enable_iga=OFF enable_gdb=OFF
+    IFS=',' read -ra _adapter_list <<< "$adapters_requested"
+    for _a in "${_adapter_list[@]}"; do
+      case "$_a" in
+        gimli-rust) enable_gimli=ON ;;
+        iga)        enable_iga=ON ;;
+        gdb-intel)  enable_gdb=ON ;;
+        *) die "unknown adapter: $_a; expected gimli-rust, iga, or gdb-intel" ;;
+      esac
+    done
+  fi
+
+  if [[ "$enable_gdb" == ON ]] && [[ ! -x "$GDB_ADDR2LINE" ]]; then
     die "IntelGT addr2line executable not found: $GDB_ADDR2LINE"
   fi
+
+  local cmake_args=(
+    -S "$SCRIPT_DIR"
+    -B "$BUILD_DIR"
+    -G "$CMAKE_GENERATOR"
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+    -DDPC_ENABLE_GIMLI_ADAPTER="$enable_gimli"
+    -DDPC_ENABLE_IGA_ADAPTER="$enable_iga"
+    -DDPC_ENABLE_GDB_INTEL_ADAPTER="$enable_gdb"
+  )
+  if [[ "$enable_gdb" == ON ]]; then
+    cmake_args+=(-DDPC_GDB_ADDR2LINE_EXECUTABLE="$GDB_ADDR2LINE")
+  fi
+
   log "adapter build: configuring $BUILD_DIR"
-  cmake -S "$SCRIPT_DIR" -B "$BUILD_DIR" -G "$CMAKE_GENERATOR" \
-    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
-    -DDPC_GDB_ADDR2LINE_EXECUTABLE="$GDB_ADDR2LINE"
+  cmake "${cmake_args[@]}"
   log "adapter build: compiling dwarf-parser-check"
   cmake --build "$BUILD_DIR"
 }
@@ -251,7 +293,7 @@ vtune_collect() {
   vtune_args+=(-- "$BIN_PATH" "$KERNEL_DEBUG_JSON")
 
   log "run: collecting VTune samples into $VTUNE_RESULT_DIR"
-  "$VTUNE_BIN" "${vtune_args[@]}"
+  ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "$VTUNE_BIN" "${vtune_args[@]}"
   log "run: VTune result: $VTUNE_RESULT_DIR"
 }
 
@@ -428,7 +470,8 @@ while [[ $# -gt 0 ]]; do
       shift
       case "$adapter_command" in
         build)
-          adapter_build
+          adapter_build "$@"
+          set --
           ;;
         clean)
           rm -rf "$BUILD_DIR"
