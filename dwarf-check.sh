@@ -64,6 +64,8 @@ Commands:
   build                 Build the workload and dwarf-parser-check.
   run                   Run the workload, write its manifest, and collect VTune samples.
   analyze               Generate the VTune reference and run resolver adapters.
+  all                   Build workload, run it under VTune, and analyze with all adapters.
+    --adapters LIST     Comma-separated adapter names, or all (default: all).
   test                  Build the adapter, run CTest, then run Rust adapter tests.
 
 Run options:
@@ -448,6 +450,27 @@ analyze_command() {
   REMAINING_ARGUMENTS=("$@")
 }
 
+all_command() {
+  local adapters="$ADAPTERS"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --adapters)
+        [[ $# -ge 2 ]] || die "all --adapters requires a list"
+        adapters=$2
+        shift 2
+        ;;
+      *)
+        die "unknown all option: $1"
+        ;;
+    esac
+  done
+  workload_build
+  workload_execute
+  vtune_collect
+  generate_vtune_reference
+  ADAPTERS=$adapters REFERENCE_FILE=$VTUNE_REFERENCE_CSV adapter_run
+}
+
 test_project() {
   adapter_build
   log "test: running CTest"
@@ -509,6 +532,10 @@ while [[ $# -gt 0 ]]; do
     analyze)
       analyze_command "$@"
       set -- "${REMAINING_ARGUMENTS[@]}"
+      ;;
+    all)
+      all_command "$@"
+      set --
       ;;
     test)
       test_project
