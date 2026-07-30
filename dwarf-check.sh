@@ -23,7 +23,6 @@ workload_results_dir_from_environment=${WORKLOAD_RESULTS_DIR+x}
 kernel_debug_json_from_environment=${KERNEL_DEBUG_JSON+x}
 vtune_result_dir_from_environment=${VTUNE_RESULT_DIR+x}
 vtune_reference_csv_from_environment=${VTUNE_REFERENCE_CSV+x}
-vtune_source_locations_json_from_environment=${VTUNE_SOURCE_LOCATIONS_JSON+x}
 WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-"$DEBUG_MODE-$OPT_LEVEL"}
 WORKLOAD_BUILD_DIR=${WORKLOAD_BUILD_DIR:-}
 WORKLOAD_RESULTS_DIR=${WORKLOAD_RESULTS_DIR:-}
@@ -33,7 +32,6 @@ KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-}
 DEFAULT_VTUNE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/vtune_results"
 VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-}
 VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-}
-VTUNE_SOURCE_LOCATIONS_JSON=${VTUNE_SOURCE_LOCATIONS_JSON:-}
 
 log() {
   printf '[dwarf-check] %s\n' "$*"
@@ -129,9 +127,6 @@ refresh_derived_paths() {
   fi
   if [[ -z "$vtune_reference_csv_from_environment" ]]; then
     VTUNE_REFERENCE_CSV="$WORKLOAD_RESULTS_DIR/vtune_reference.csv"
-  fi
-  if [[ -z "$vtune_source_locations_json_from_environment" ]]; then
-    VTUNE_SOURCE_LOCATIONS_JSON="$WORKLOAD_RESULTS_DIR/source_locations.json"
   fi
   VTUNE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/vtune_manifest.json"
 }

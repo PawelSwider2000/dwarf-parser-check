@@ -128,10 +128,6 @@ std::vector<VtuneManifestEntry> load_vtune_manifest(
     }
     VtuneManifestEntry entry;
     entry.kernel_name = find_string_field(record, "name");
-    entry.source_locations = [&]() -> std::string {
-      try { return find_string_field(record, "source_locations"); }
-      catch (...) { return {}; }
-    }();
     entry.reference_csv = [&]() -> std::string {
       try { return find_string_field(record, "reference_csv"); }
       catch (...) { return {}; }

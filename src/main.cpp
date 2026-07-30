@@ -51,7 +51,7 @@ int main(int argc, char** argv) {
       return 1;
     }
 
-    // Build a name→source_locations lookup from the vtune manifest (if provided).
+    // Build a name→reference_csv lookup from the vtune manifest (if provided).
     std::vector<VtuneManifestEntry> vtune_manifest;
     if (cli->vtune_manifest.has_value()) {
       vtune_manifest = load_vtune_manifest(*cli->vtune_manifest);
@@ -84,9 +84,7 @@ int main(int argc, char** argv) {
         ResolveRequest request = make_resolve_request(kernel);
         // Per-kernel reference from manifest takes priority over --reference.
         if (const auto* entry = find_manifest_entry(kernel.name)) {
-          request.reference_file = entry->reference_csv.empty()
-              ? entry->source_locations
-              : entry->reference_csv;
+          request.reference_file = entry->reference_csv;
         } else {
           request.reference_file = cli->reference_file;
         }

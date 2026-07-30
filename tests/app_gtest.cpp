@@ -240,13 +240,15 @@ TEST(CoreTest, CreateAdaptersTrimsWhitespace) {
   EXPECT_EQ(adapters[0]->name(), "rust-gimli");
 }
 
-TEST(CoreTest, ComparesEverySelectedAdapterAgainstVtuneJson) {
+TEST(CoreTest, ComparesEverySelectedAdapterAgainstVtuneCsv) {
   const std::filesystem::path reference_path =
-      std::filesystem::temp_directory_path() / "dwarf_parser_check_vtune_reference.json";
+      std::filesystem::temp_directory_path() / "dwarf_parser_check_vtune_reference.csv";
   {
     std::ofstream reference(reference_path);
     ASSERT_TRUE(reference);
-    reference << R"({"0x40":[["generated.cpp",20],["source.cpp",10]]})";
+    reference << "Kernel Offset,Source File,Source Line\n"
+              << "0x40,generated.cpp,20\n"
+              << "0x40,source.cpp,10\n";
   }
 
   std::vector<DwarfAdapterPtr> adapters;
@@ -356,7 +358,7 @@ TEST(IgaAdapterTest, ResolvesDecodedInstructionsAndComparesWithVtune) {
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
   request.kernel_binary_size = 81152;
   request.iga_platform = 0x02000000;
-  request.reference_file = std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" / "source_locations.json";
+  request.reference_file = std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" / "results" / "gemm" / "g-O1" / "vtune_reference__ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.csv";
 
   ASSERT_TRUE(adapter->supports(request));
   std::vector<DwarfAdapterPtr> adapters;

@@ -20,60 +20,6 @@ std::string normalize_path(const std::string& input, bool normalize) {
   return std::filesystem::path(input).lexically_normal().generic_string();
 }
 
-std::string unescape_json_string(std::string_view value) {
-  std::string unescaped;
-  unescaped.reserve(value.size());
-  for (std::size_t index = 0; index < value.size(); ++index) {
-    if (value[index] != '\\') {
-      unescaped += value[index];
-      continue;
-    }
-    if (++index == value.size()) {
-      throw std::runtime_error("invalid escape in VTune source-locations JSON");
-    }
-    switch (value[index]) {
-      case '"': unescaped += '"'; break;
-      case '\\': unescaped += '\\'; break;
-      case '/': unescaped += '/'; break;
-      case 'b': unescaped += '\b'; break;
-      case 'f': unescaped += '\f'; break;
-      case 'n': unescaped += '\n'; break;
-      case 'r': unescaped += '\r'; break;
-      case 't': unescaped += '\t'; break;
-      default: throw std::runtime_error("invalid escape in VTune source-locations JSON");
-    }
-  }
-  return unescaped;
-}
-
-std::size_t find_array_end(const std::string& json, std::size_t array_begin) {
-  std::size_t depth = 0;
-  bool in_string = false;
-  bool escaped = false;
-  for (std::size_t index = array_begin; index < json.size(); ++index) {
-    const char character = json[index];
-    if (in_string) {
-      if (escaped) {
-        escaped = false;
-      } else if (character == '\\') {
-        escaped = true;
-      } else if (character == '"') {
-        in_string = false;
-      }
-      continue;
-    }
-
-    if (character == '"') {
-      in_string = true;
-    } else if (character == '[') {
-      ++depth;
-    } else if (character == ']' && --depth == 0U) {
-      return index;
-    }
-  }
-  throw std::runtime_error("unterminated array in VTune source-locations JSON");
-}
-
 std::vector<std::string> parse_csv_row(std::string_view row) {
   std::vector<std::string> fields;
   std::string field;
@@ -103,42 +49,6 @@ std::vector<std::string> parse_csv_row(std::string_view row) {
   }
   fields.push_back(std::move(field));
   return fields;
-}
-
-std::vector<Location> load_vtune_source_locations_json(
-    const std::string& json,
-    const std::string& kernel_name) {
-  const std::regex entry_pattern(R"vtune("((?:\\.|[^"])*)"\s*:\s*\[)vtune");
-  const std::regex location_pattern(
-      R"vtune(\[\s*"((?:\\.|[^"])*)"\s*,\s*([0-9]+)\s*\])vtune");
-  std::vector<Location> locations;
-  for (std::sregex_iterator it(json.begin(), json.end(), entry_pattern), end;
-       it != end; ++it) {
-    std::uint64_t ip = 0;
-    try {
-      ip = std::stoull(unescape_json_string((*it)[1].str()), nullptr, 0);
-    } catch (const std::exception&) {
-      throw std::runtime_error("invalid address in VTune source-locations JSON");
-    }
-
-    const std::size_t array_begin = static_cast<std::size_t>((*it).position(0)) +
-        static_cast<std::size_t>((*it).length(0)) - 1U;
-    const std::size_t array_end = find_array_end(json, array_begin);
-    const std::string values = json.substr(array_begin + 1U, array_end - array_begin - 1U);
-    for (std::sregex_iterator location_it(values.begin(), values.end(), location_pattern), location_end;
-         location_it != location_end; ++location_it) {
-      Location location;
-      location.kernel_name = kernel_name;
-      location.ip = ip;
-      location.file = unescape_json_string((*location_it)[1].str());
-      location.line = std::stoull((*location_it)[2].str());
-      locations.push_back(std::move(location));
-    }
-  }
-  if (locations.empty()) {
-    throw std::runtime_error("VTune source-locations JSON contains no source locations");
-  }
-  return locations;
 }
 
 std::vector<Location> load_vtune_reference_csv(
@@ -236,11 +146,6 @@ std::vector<Location> load_reference_locations(
 
   const std::string contents((std::istreambuf_iterator<char>(input)),
                              std::istreambuf_iterator<char>());
-  const std::size_t first_content = contents.find_first_not_of(" \t\r\n");
-  if (first_content != std::string::npos && contents[first_content] == '{') {
-    return load_vtune_source_locations_json(contents, kernel_name);
-  }
-
   const std::size_t first_line_end = contents.find_first_of("\r\n");
   const std::vector<std::string> header = parse_csv_row(contents.substr(0, first_line_end));
   if (std::find(header.begin(), header.end(), "Address") != header.end() ||
