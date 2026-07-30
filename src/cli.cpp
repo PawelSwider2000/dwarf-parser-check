@@ -212,6 +212,15 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
+    if (argument == "--vtune-manifest") {
+      const auto value = require_value(argument);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      options.vtune_manifest = std::filesystem::path(*value);
+      continue;
+    }
+
     if (argument == "--output-dir") {
       const auto value = require_value(argument);
       if (!value.has_value()) {

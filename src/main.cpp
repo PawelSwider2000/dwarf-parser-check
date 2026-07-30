@@ -51,6 +51,21 @@ int main(int argc, char** argv) {
       return 1;
     }
 
+    // Build a name→source_locations lookup from the vtune manifest (if provided).
+    std::vector<VtuneManifestEntry> vtune_manifest;
+    if (cli->vtune_manifest.has_value()) {
+      vtune_manifest = load_vtune_manifest(*cli->vtune_manifest);
+    }
+    auto find_manifest_entry = [&](const std::string& name)
+        -> const VtuneManifestEntry* {
+      for (const auto& entry : vtune_manifest) {
+        if (entry.kernel_name == name) {
+          return &entry;
+        }
+      }
+      return nullptr;
+    };
+
     std::filesystem::create_directories(cli->output_dir);
     std::vector<DwarfAdapterPtr> adapters = create_adapters(cli->adapter_selection);
     if (adapters.empty()) {
@@ -67,7 +82,14 @@ int main(int argc, char** argv) {
       ResolveReport adapter_report;
       for (const KernelDebugData& kernel : kernels) {
         ResolveRequest request = make_resolve_request(kernel);
-        request.reference_file = cli->reference_file;
+        // Per-kernel reference from manifest takes priority over --reference.
+        if (const auto* entry = find_manifest_entry(kernel.name)) {
+          request.reference_file = entry->reference_csv.empty()
+              ? entry->source_locations
+              : entry->reference_csv;
+        } else {
+          request.reference_file = cli->reference_file;
+        }
 
         const ResolveReport report = resolve_request(engine, request);
         print_report(report, std::cout);

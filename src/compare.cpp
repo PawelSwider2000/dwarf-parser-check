@@ -158,11 +158,12 @@ std::vector<Location> load_vtune_reference_csv(
     }
     return static_cast<std::size_t>(std::distance(header.begin(), column));
   };
-  const auto address_column = find_column("Address");
+  const auto address_col_a = find_column("Address");
+  const auto address_column = address_col_a.has_value() ? address_col_a : find_column("Kernel Offset");
   const auto file_column = find_column("Source File");
   const auto line_column = find_column("Source Line");
   if (!address_column.has_value() || !file_column.has_value() || !line_column.has_value()) {
-    throw std::runtime_error("VTune CSV reference must contain Address, Source File, and Source Line columns");
+    throw std::runtime_error("VTune CSV reference must contain Address or Kernel Offset, Source File, and Source Line columns");
   }
 
   std::vector<Location> locations;
@@ -242,7 +243,8 @@ std::vector<Location> load_reference_locations(
 
   const std::size_t first_line_end = contents.find_first_of("\r\n");
   const std::vector<std::string> header = parse_csv_row(contents.substr(0, first_line_end));
-  if (std::find(header.begin(), header.end(), "Address") != header.end()) {
+  if (std::find(header.begin(), header.end(), "Address") != header.end() ||
+      std::find(header.begin(), header.end(), "Kernel Offset") != header.end()) {
     return load_vtune_reference_csv(contents, kernel_name);
   }
 

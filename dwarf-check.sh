@@ -133,6 +133,7 @@ refresh_derived_paths() {
   if [[ -z "$vtune_source_locations_json_from_environment" ]]; then
     VTUNE_SOURCE_LOCATIONS_JSON="$WORKLOAD_RESULTS_DIR/source_locations.json"
   fi
+  VTUNE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/vtune_manifest.json"
 }
 
 parse_global_options() {
@@ -300,36 +301,26 @@ vtune_collect() {
 }
 
 generate_vtune_reference() {
-  local workload_dir="$SCRIPT_DIR/data_generation/workloads/$WORKLOAD"
   if [[ ! -d "$VTUNE_RESULT_DIR" ]]; then
     die "VTune result directory not found: $VTUNE_RESULT_DIR; run 'dwarf-check run' first"
   fi
 
-  mkdir -p "$(dirname "$VTUNE_REFERENCE_CSV")"
-  (
-    local raw_report
-    raw_report=$(mktemp "${TMPDIR:-/tmp}/vtune-reference.XXXXXX.csv")
-    trap 'rm -f "$raw_report"' EXIT
-    "$VTUNE_BIN" \
-      -report hotspots \
-      -result-dir "$VTUNE_RESULT_DIR" \
-      -source-object "computing-task=$VTUNE_COMPUTING_TASK" \
-      -group-by address \
-      -format csv \
-      -csv-delimiter comma \
-      -report-width 0 \
-      -report-output "$raw_report"
+  mkdir -p "$WORKLOAD_RESULTS_DIR"
+  "$VTUNE_BIN" \
+    -report hotspots \
+    -result-dir "$VTUNE_RESULT_DIR" \
+    -source-object "computing-task=$VTUNE_COMPUTING_TASK" \
+    -group-by address \
+    -format csv \
+    -csv-delimiter comma \
+    -report-width 0 \
+    -report-output "$WORKLOAD_RESULTS_DIR/result.csv"
 
-    python3 "$SCRIPT_DIR/data_generation/correlate_vtune_report.py" \
-      --input "$raw_report" \
-      --output "$VTUNE_REFERENCE_CSV" \
-      --result-dir "$VTUNE_RESULT_DIR" \
-      --source-locations-output "$VTUNE_SOURCE_LOCATIONS_JSON" \
-      --user-source-root "$workload_dir" \
-      --readelf "$READELF_BIN"
-  )
-  log "analyze: CSV report: $VTUNE_REFERENCE_CSV"
-  log "analyze: user source locations: $VTUNE_SOURCE_LOCATIONS_JSON"
+  python3 "$SCRIPT_DIR/data_generation/extract_addr_srcline.py" \
+    "$WORKLOAD_RESULTS_DIR"
+
+  log "analyze: VTune reference CSVs written to $WORKLOAD_RESULTS_DIR"
+  log "analyze: manifest: $VTUNE_MANIFEST_JSON"
 }
 
 adapter_run() {
@@ -350,7 +341,9 @@ adapter_run() {
     --adapters "$ADAPTERS"
     --output-dir "$WORKLOAD_RESULTS_DIR"
   )
-  if [[ -n ${REFERENCE_FILE:-} ]]; then
+  if [[ -f "$VTUNE_MANIFEST_JSON" ]]; then
+    resolver_args+=(--vtune-manifest "$VTUNE_MANIFEST_JSON")
+  elif [[ -n ${REFERENCE_FILE:-} ]]; then
     [[ -f "$REFERENCE_FILE" ]] || die "reference file not found: $REFERENCE_FILE"
     resolver_args+=(--reference "$REFERENCE_FILE")
   fi

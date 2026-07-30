@@ -110,6 +110,39 @@ std::vector<KernelDebugData> load_kernel_debug_manifest(
   return kernels;
 }
 
+std::vector<VtuneManifestEntry> load_vtune_manifest(
+    const std::filesystem::path& manifest_path) {
+  std::ifstream input(manifest_path, std::ios::binary);
+  if (!input) {
+    throw std::runtime_error("failed to open vtune manifest: " + manifest_path.string());
+  }
+  const std::string json((std::istreambuf_iterator<char>(input)),
+                         std::istreambuf_iterator<char>());
+  const std::regex record_pattern(R"(\{([^{}]*)\})");
+  std::vector<VtuneManifestEntry> entries;
+  for (std::sregex_iterator it(json.begin(), json.end(), record_pattern), end;
+       it != end; ++it) {
+    const std::string record = (*it)[1].str();
+    if (record.find("\"name\"") == std::string::npos) {
+      continue;
+    }
+    VtuneManifestEntry entry;
+    entry.kernel_name = find_string_field(record, "name");
+    entry.source_locations = [&]() -> std::string {
+      try { return find_string_field(record, "source_locations"); }
+      catch (...) { return {}; }
+    }();
+    entry.reference_csv = [&]() -> std::string {
+      try { return find_string_field(record, "reference_csv"); }
+      catch (...) { return {}; }
+    }();
+    entry.section_file_offset =
+        find_uint64_field(record, "section_file_offset").value_or(0);
+    entries.push_back(std::move(entry));
+  }
+  return entries;
+}
+
 ResolveRequest make_resolve_request(const KernelDebugData& kernel) {
   ResolveRequest request;
   request.dwarf_file = kernel.elf_dwarf_path;
