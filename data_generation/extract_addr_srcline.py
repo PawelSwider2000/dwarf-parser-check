@@ -71,38 +71,50 @@ def run_ocloc_disasm(zebin: Path, ocloc: str = "ocloc") -> Path:
 # ---------------------------------------------------------------------------
 # 1. VTune DB approach
 # ---------------------------------------------------------------------------
-def extract_vtune(addr_filter: set[int] | None = None) -> tuple[list[tuple[int, int, str]], dict[int, int]]:
-    """Return (sorted [(display_address, line, filepath)], {display_address: rva}) from VTune DB.
+def extract_vtune_all() -> tuple[list[tuple[int, int | None, int, str]], dict[int, int]]:
+    """Return (all rows [(addr, nested_level, line, path)], {addr: rva}) from VTune DB.
 
-    When multiple source lines exist for one address (inlining), picks the
-    innermost non-zero line (smallest src_loc rowid = leaf of inline chain).
+    Includes every resolution level per address (NULL = raw DWARF entry, 0+ = inline depth).
+    Sorted by address ascending, NULL nested_level first within each address.
     """
     conn = sqlite3.connect(VTUNE_DB)
     rows = conn.execute("""
-        SELECT cl.display_address, cl.rva, sl.line, sf.path
+        SELECT cl.display_address, cl.rva, cl.nested_level, sl.line, sf.path
         FROM dd_code_location cl
         LEFT JOIN dd_source_location sl ON cl.src_loc = sl.rowid
         LEFT JOIN dd_source_file sf ON sl.src_file = sf.rowid
-        ORDER BY cl.display_address, cl.rowid
+        ORDER BY cl.display_address,
+                 cl.nested_level IS NOT NULL,
+                 cl.nested_level
     """).fetchall()
     conn.close()
 
-    seen: dict[int, int] = {}
-    seen_file: dict[int, str] = {}
-    rva_map: dict[int, int] = {}  # display_address → rva
-    for addr, rva, line, fpath in rows:
+    results: list[tuple[int, int | None, int, str]] = []
+    rva_map: dict[int, int] = {}
+    for addr, rva, nested_level, line, fpath in rows:
         if addr is None:
             continue
-        if addr_filter and addr not in addr_filter:
-            continue
-        line = line or 0
-        if addr not in seen or (line and not seen[addr]):
-            seen[addr] = line
-            seen_file[addr] = os.path.normpath(fpath) if fpath else ""
+        norm_path = os.path.normpath(fpath) if fpath else ""
+        results.append((addr, nested_level, line or 0, norm_path))
         if addr not in rva_map and rva is not None:
             rva_map[addr] = rva
 
-    return [(a, l, seen_file.get(a, "")) for a, l in sorted(seen.items(), key=lambda x: x[0])], rva_map
+    return results, rva_map
+
+
+def write_vtune_all_csv(
+    path: Path,
+    rows: list[tuple[int, int | None, int, str]],
+    asm_map: dict[int, str],
+) -> None:
+    """Write vtune_addr_srcline.csv with one row per (address, nested_level) pair."""
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["Address", "Nested Level", "Source File", "Source Line", "Assembly"])
+        for addr, nested_level, line, fpath in rows:
+            level = "" if nested_level is None else str(nested_level)
+            w.writerow([hex(addr), level, fpath, line if line else "", asm_map.get(addr, "")])
+    print(f"Written {len(rows)} rows → {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -321,12 +333,12 @@ def main() -> None:
 
     asm_map = load_assembly(ref_csv)
 
-    # VTune DB
-    vtune_rows, rva_map = extract_vtune()
-    write_csv(RESULTS_DIR / "vtune_addr_srcline.csv", vtune_rows, asm_map)
+    # VTune DB — all resolution levels per address
+    vtune_all_rows, rva_map = extract_vtune_all()
+    write_vtune_all_csv(RESULTS_DIR / "vtune_addr_srcline.csv", vtune_all_rows, asm_map)
 
     # Addresses in result.csv but absent from VTune DB (e.g. never-sampled jumps)
-    vtune_addrs = {r[0] for r in vtune_rows}
+    vtune_addrs = {r[0] for r in vtune_all_rows}
     missing_addrs = ref_addrs - vtune_addrs
 
     # DWARF — run ocloc disasm to get fresh debug sections, then parse .debug_line
@@ -338,7 +350,8 @@ def main() -> None:
 
     # Quick diff against result.csv addresses
     if ref_addrs and dwarf_rows:
-        vtune_map = {r[0]: r[1] for r in vtune_rows}
+        # Use NULL nested_level rows (raw DWARF) as the canonical VTune resolution
+        vtune_map = {r[0]: r[2] for r in vtune_all_rows if r[1] is None}
         print(f"\n{'Address':<12} {'result.csv':>12} {'VTune DB':>10} {'DWARF':>8}")
         print("-" * 46)
         ref_map: dict[int, int] = {}
