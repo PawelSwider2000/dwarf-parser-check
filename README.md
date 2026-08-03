@@ -113,6 +113,11 @@ builds a BMG+PVC fat binary, while mode-specific artifact paths keep its build
 and result files separate from the JIT experiment. Set `AOT_TARGETS=bmg` or
 `AOT_TARGETS=pvc` to restrict the AOT target list.
 
+After the matrix completes, `artifacts/experiment_summary.json` contains one
+record per experiment with its name, `PASS` or `FAIL` status, mismatch count,
+and aggregated rust-gimli comparison summary. Set `ARTIFACT_DIR` or
+`EXPERIMENT_SUMMARY_FILE` to choose a different location.
+
 ## Output
 
 `analyze` creates a per-kernel VTune reference and addr2line IP list, then passes

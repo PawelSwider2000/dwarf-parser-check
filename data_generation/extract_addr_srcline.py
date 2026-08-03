@@ -20,6 +20,7 @@ import subprocess
 import sys
 import struct
 import sqlite3
+import tempfile
 from pathlib import Path
 
 
@@ -208,35 +209,80 @@ def extract_dwarf(
 # ---------------------------------------------------------------------------
 # 3. VTune reference CSV (per kernel, same format as correlate_vtune_report output)
 # ---------------------------------------------------------------------------
-def generate_vtune_reference(ref_csv: Path, out_dir: Path) -> list[dict]:
-    """Write a reference CSV and raw IP list per kernel found in the VTune DB.
+def correlate_vtune_locations(ref_csv: Path) -> dict[str, dict[int, tuple[int, str]]]:
+    """Return DWARF-correlated {(kernel, display address): (line, file)} locations."""
+    correlator = Path(__file__).with_name("correlate_vtune_report.py")
+    with tempfile.TemporaryDirectory(prefix="dwarf-parser-check-correlation-") as temp_dir:
+        temp_path = Path(temp_dir)
+        manifest_path = temp_path / "vtune_manifest.json"
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(correlator),
+                    "--input", str(ref_csv),
+                    "--output", str(temp_path / "vtune_reference.csv"),
+                    "--result-dir", str(RESULTS_DIR / "vtune_results"),
+                    "--manifest-output", str(manifest_path),
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as error:
+            print(f"DWARF correlation failed: {error}; no reference locations available",
+                  file=sys.stderr)
+            return {}
+
+        manifest = json.loads(manifest_path.read_text())
+        locations: dict[str, dict[int, tuple[int, str]]] = {}
+        for kernel in manifest["kernels"]:
+            kernel_locations: dict[int, tuple[int, str]] = {}
+            with open(kernel["reference_csv"], newline="") as reference_stream:
+                for row in csv.DictReader(reference_stream):
+                    try:
+                        address = int(row["Address"], 16)
+                        line = int(row["Source Line"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    source_file = row.get("Source File", "")
+                    if source_file:
+                        kernel_locations[address] = (line, os.path.normpath(source_file))
+            locations[kernel["name"]] = kernel_locations
+    return locations
+
+
+def generate_vtune_reference(
+    ref_csv: Path,
+    out_dir: Path,
+    correlated_locations: dict[str, dict[int, tuple[int, str]]],
+) -> list[dict]:
+    """Write a correlateable reference CSV and raw IP list per VTune kernel.
 
     Columns: Address, Source File, Source Line, Assembly, <any extra cols from ref_csv>.
     Rows come from the DB (nested_level=None = raw DWARF entry); assembly and extra
-    counter columns are filled from ref_csv where available. The IP list preserves
-    VTune display addresses for direct addr2line-style resolution.
+    counter columns are filled from ref_csv where available. Rows without both a
+    source file and line cannot be compared, so neither they nor their addresses
+    are included in the adapter inputs.
     """
     conn = sqlite3.connect(VTUNE_DB)
     # Fetch raw DWARF entries only (nested_level IS NULL) to stay true to .debug_line
     db_rows = conn.execute("""
-        SELECT cl.display_address, cl.rva, sl.line, sf.path, ms.gpu_kernel_name
+        SELECT cl.display_address, cl.rva, ms.gpu_kernel_name
         FROM dd_code_location cl
-        LEFT JOIN dd_source_location sl  ON cl.src_loc  = sl.rowid
-        LEFT JOIN dd_source_file     sf  ON sl.src_file = sf.rowid
         LEFT JOIN dd_module_segment  ms  ON cl.mod_seg  = ms.rowid
         WHERE cl.nested_level IS NULL
         ORDER BY ms.gpu_kernel_name, cl.display_address
     """).fetchall()
     conn.close()
 
-    # Group by kernel name; store (display_address, rva, line, path)
+    # Group by kernel name; store DWARF-correlated (display_address, rva, line, path).
     by_kernel: dict[str, list[tuple[int, int, int, str]]] = {}
-    for addr, rva, line, path, kernel in db_rows:
+    for addr, rva, kernel in db_rows:
         if addr is None:
             continue
         key = kernel or "unknown"
-        norm_path = os.path.normpath(path) if path else ""
-        by_kernel.setdefault(key, []).append((addr, rva or 0, line or 0, norm_path))
+        location = correlated_locations.get(key, {}).get(addr)
+        line, path = location if location is not None else (0, "")
+        by_kernel.setdefault(key, []).append((addr, rva or 0, line, path))
 
     # Load extra columns (assembly, stall counts) from ref_csv keyed by address
     extra_cols: list[str] = []
@@ -256,24 +302,30 @@ def generate_vtune_reference(ref_csv: Path, out_dir: Path) -> list[dict]:
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_kernels: list[dict] = []
     for kernel, entries in sorted(by_kernel.items()):
+        correlateable_entries = [
+            entry for entry in entries if entry[2] > 0 and entry[3]
+        ]
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel)
         out_path = out_dir / f"vtune_reference_{safe}.csv"
         ip_list_path = out_dir / f"vtune_ips_{safe}.txt"
         # section_file_offset = kernel base = display_address - rva (constant per kernel)
-        section_file_offset = entries[0][0] - entries[0][1] if entries else 0
+        section_file_offset = (
+            correlateable_entries[0][0] - correlateable_entries[0][1]
+            if correlateable_entries else 0
+        )
         with open(out_path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["Kernel Offset", "Source File", "Source Line"] + extra_cols)
-            for addr, rva, line, path in entries:
+            for addr, rva, line, path in correlateable_entries:
                 extra = extra_data.get(addr, {c: "" for c in extra_cols})
-                w.writerow([hex(rva), path, line if line else ""] +
+                w.writerow([hex(rva), path, line] +
                            [extra.get(c, "") for c in extra_cols])
-        print(f"Written {len(entries)} rows → {out_path}")
-        unique_addresses = sorted({addr for addr, _, _, _ in entries})
+        print(f"Written {len(correlateable_entries)} correlateable rows → {out_path}")
+        unique_addresses = sorted({addr for addr, _, _, _ in correlateable_entries})
         with open(ip_list_path, "w") as f:
             for addr in unique_addresses:
                 f.write(f"{addr:#x}\n")
-        print(f"Written {len(unique_addresses)} IPs → {ip_list_path}")
+        print(f"Written {len(unique_addresses)} correlateable IPs → {ip_list_path}")
         manifest_kernels.append({
             "name": kernel,
             "reference_csv": str(out_path.resolve()),
@@ -340,9 +392,13 @@ def main() -> None:
                 except (ValueError, KeyError):
                     pass
 
-    # VTune reference CSVs + manifest (one CSV per kernel, DB-sourced)
+    # VTune samples are mapped through the raw DWARF line table because VTune's
+    # SQLite source-file field can pair an inline-header line with the outer TU.
     zebin = find_zebin(RESULTS_DIR)
-    manifest_kernels = generate_vtune_reference(ref_csv, RESULTS_DIR)
+    correlated_locations = correlate_vtune_locations(ref_csv)
+    manifest_kernels = generate_vtune_reference(
+        ref_csv, RESULTS_DIR, correlated_locations
+    )
     write_manifest(RESULTS_DIR / "vtune_manifest.json", zebin, manifest_kernels)
 
     asm_map = load_assembly(ref_csv)

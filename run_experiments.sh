@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-DWARF_CHECK="$SCRIPT_DIR/dwarf-check.sh"
+DWARF_CHECK=${DWARF_CHECK:-"$SCRIPT_DIR/dwarf-check.sh"}
 
 # ── Experiment matrix ──────────────────────────────────────────────────────────
 WORKLOADS=(gemm)
@@ -32,6 +32,77 @@ runtime_to_cmake_adapter() {
 # Pass any extra dwarf-check.sh global flags via EXTRA_FLAGS, e.g.:
 #   EXTRA_FLAGS="--artifact-dir /tmp/artifacts" ./run_experiments.sh
 EXTRA_FLAGS=${EXTRA_FLAGS:-}
+ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
+EXPERIMENT_SUMMARY_FILE=${EXPERIMENT_SUMMARY_FILE:-"$ARTIFACT_DIR/experiment_summary.json"}
+EXPERIMENT_RECORDS_FILE=$(mktemp "${TMPDIR:-/tmp}/dwarf-check-experiments.XXXXXX")
+trap 'rm -f "$EXPERIMENT_RECORDS_FILE"' EXIT
+
+write_experiment_record() {
+  local status=$1
+  local name=$2
+  local workload=$3
+  local configuration=$4
+  local comparison_file="$ARTIFACT_DIR/results/$workload/$configuration/adapter_rust-gimli_vtune_comparison.json"
+
+  python3 - "$EXPERIMENT_RECORDS_FILE" "$status" "$name" "$comparison_file" <<'PY'
+import json
+import pathlib
+import sys
+
+records_path, status, name, comparison_path = sys.argv[1:]
+record = {"name": name, "status": status, "comparison": None}
+path = pathlib.Path(comparison_path)
+
+if path.is_file():
+  try:
+    comparisons = json.loads(path.read_text())["comparisons"]
+    summary_keys = (
+      "compared_offsets",
+      "matches",
+      "file_mismatches",
+      "line_mismatches",
+      "column_mismatches",
+      "missing_in_reference",
+      "missing_in_backend",
+    )
+    summary = {key: 0 for key in summary_keys}
+    mismatch_count = 0
+    for comparison in comparisons:
+      mismatch_count += comparison["mismatch_count"]
+      for key in summary_keys:
+        summary[key] += comparison["summary"][key]
+    record["comparison"] = {
+      "mismatch_count": mismatch_count,
+      "summary": summary,
+    }
+  except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
+    record["comparison_error"] = str(error)
+else:
+  record["comparison_error"] = f"comparison file not found: {path}"
+
+with open(records_path, "a", encoding="utf-8") as records_file:
+  records_file.write(json.dumps(record) + "\n")
+PY
+}
+
+write_experiment_summary() {
+  mkdir -p "$(dirname "$EXPERIMENT_SUMMARY_FILE")"
+  python3 - "$EXPERIMENT_RECORDS_FILE" "$EXPERIMENT_SUMMARY_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+records_path, summary_path = map(pathlib.Path, sys.argv[1:])
+records = [json.loads(line) for line in records_path.read_text().splitlines()]
+summary = {
+  "total": len(records),
+  "passed": sum(record["status"] == "PASS" for record in records),
+  "failed": sum(record["status"] == "FAIL" for record in records),
+}
+summary_path.write_text(json.dumps({"summary": summary, "experiments": records}, indent=2) + "\n")
+PY
+  log "summary file: $EXPERIMENT_SUMMARY_FILE"
+}
 
 # ── Build the adapter once (shared across all experiments) ─────────────────────
 log() { printf '[experiments] %s\n' "$*"; }
@@ -66,6 +137,9 @@ for workload in "${WORKLOADS[@]}"; do
         if [[ "$device_code" == aot ]]; then
           label+="/device-target=$AOT_TARGETS"
           arguments+=(--device-target "$AOT_TARGETS")
+          configuration="aot-${AOT_TARGETS//,/-}-$debug-$opt"
+        else
+          configuration="jit-$debug-$opt"
         fi
         arguments+=(all --adapters "$ADAPTERS")
         log "[$count/$total] experiment: $label"
@@ -73,9 +147,11 @@ for workload in "${WORKLOADS[@]}"; do
         # shellcheck disable=SC2086
         if "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}"; then
           log "[$count/$total] PASS: $label"
+          write_experiment_record PASS "$label" "$workload" "$configuration"
         else
           log "[$count/$total] FAIL: $label"
           failed+=("$label")
+          write_experiment_record FAIL "$label" "$workload" "$configuration"
         fi
       done
     done
@@ -85,6 +161,7 @@ done
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo
 log "results: $((count - ${#failed[@]}))/$count passed"
+write_experiment_summary
 if [[ ${#failed[@]} -gt 0 ]]; then
   log "failed experiments:"
   for f in "${failed[@]}"; do
