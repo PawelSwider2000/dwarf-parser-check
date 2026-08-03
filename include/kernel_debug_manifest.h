@@ -17,6 +17,7 @@ namespace dwarf_parser_check {
 struct VtuneManifestEntry {
   std::string kernel_name;  // matches KernelDebugData::name (mangled)
   std::filesystem::path reference_csv;
+  std::filesystem::path ip_list;
   std::uint64_t section_file_offset = 0;  // zebin file offset of the .text section
 };
 

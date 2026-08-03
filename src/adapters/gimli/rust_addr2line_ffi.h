@@ -24,11 +24,11 @@ typedef struct DpcAddr2LineKernelLocations {
 
 const char* dpc_addr2line_last_error(void);
 
-int dpc_addr2line_resolve_kernel(
+int dpc_addr2line_resolve_addresses(
     const char* dwarf_path,
-    const char* mangled_kernel_name,
-    uint64_t runtime_kernel_address,
-    size_t kernel_binary_size,
+  uint64_t kernel_base,
+  const uint64_t* addresses,
+  size_t address_count,
     DpcAddr2LineKernelLocations* locations);
 
 void dpc_addr2line_kernel_locations_dispose(DpcAddr2LineKernelLocations* locations);

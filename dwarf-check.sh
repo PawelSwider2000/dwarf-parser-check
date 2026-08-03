@@ -5,6 +5,8 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 DEBUG_MODE=${DEBUG_MODE:-g}
 OPT_LEVEL=${OPT_LEVEL:-O0}
+DEVICE_CODE=${DEVICE_CODE:-jit}
+DEVICE_TARGET=${DEVICE_TARGET:-bmg,pvc}
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
 WORKLOAD=${WORKLOAD:-gemm}
 BUILD_DIR=${BUILD_DIR:-"$SCRIPT_DIR/build"}
@@ -15,7 +17,7 @@ VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
 READELF_BIN=${READELF_BIN:-readelf}
-ADAPTERS=${ADAPTERS:-all}
+ADAPTERS=${ADAPTERS:-rust-gimli}
 
 workload_configuration_from_environment=${WORKLOAD_CONFIGURATION+x}
 workload_build_dir_from_environment=${WORKLOAD_BUILD_DIR+x}
@@ -23,7 +25,7 @@ workload_results_dir_from_environment=${WORKLOAD_RESULTS_DIR+x}
 kernel_debug_json_from_environment=${KERNEL_DEBUG_JSON+x}
 vtune_result_dir_from_environment=${VTUNE_RESULT_DIR+x}
 vtune_reference_csv_from_environment=${VTUNE_REFERENCE_CSV+x}
-WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-"$DEBUG_MODE-$OPT_LEVEL"}
+WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-}
 WORKLOAD_BUILD_DIR=${WORKLOAD_BUILD_DIR:-}
 WORKLOAD_RESULTS_DIR=${WORKLOAD_RESULTS_DIR:-}
 BIN_PATH="$WORKLOAD_BUILD_DIR/bin/$WORKLOAD"
@@ -50,6 +52,8 @@ Global options must appear before the first command:
   --workload NAME       Workload under data_generation/workloads (default: gemm)
   --debug MODE          Device debug information: g, gline, or none (default: g)
   --opt LEVEL           Workload optimization: O0, O1, or O2 (default: O0)
+  --device-code MODE    Device compilation: jit or aot (default: jit)
+  --device-target LIST  Comma-separated AOT targets: bmg, pvc (default: bmg,pvc)
   --artifact-dir PATH   Workload artifact root (default: artifacts)
   --build-dir PATH      dwarf-parser-check CMake build directory (default: build)
   --help, -h            Show this help text
@@ -81,7 +85,7 @@ Analyze options:
 Examples:
   $(basename "$0") build run
   $(basename "$0") analyze --adapters iga
-  $(basename "$0") --workload gemm --debug g --opt O0 workload build
+  $(basename "$0") --workload gemm --debug g --opt O0 --device-code aot workload build
 EOF
 }
 
@@ -106,9 +110,39 @@ validate_opt_level() {
   esac
 }
 
+validate_device_code() {
+  case "$DEVICE_CODE" in
+    jit|aot)
+      ;;
+    *)
+      die "unsupported device compilation mode: $DEVICE_CODE; expected jit or aot"
+      ;;
+  esac
+}
+
+validate_device_target() {
+  local target
+  local -a targets
+  IFS=',' read -ra targets <<< "$DEVICE_TARGET"
+  [[ ${#targets[@]} -gt 0 ]] || die "at least one AOT device target is required"
+  for target in "${targets[@]}"; do
+    case "$target" in
+      bmg|pvc)
+        ;;
+      *)
+        die "unsupported AOT device target: $target; expected bmg or pvc"
+        ;;
+    esac
+  done
+}
+
 refresh_derived_paths() {
   if [[ -z "$workload_configuration_from_environment" ]]; then
-    WORKLOAD_CONFIGURATION="$DEBUG_MODE-$OPT_LEVEL"
+    if [[ "$DEVICE_CODE" == aot ]]; then
+      WORKLOAD_CONFIGURATION="aot-${DEVICE_TARGET//,/-}-$DEBUG_MODE-$OPT_LEVEL"
+    else
+      WORKLOAD_CONFIGURATION="jit-$DEBUG_MODE-$OPT_LEVEL"
+    fi
   fi
   if [[ -z "$workload_build_dir_from_environment" ]]; then
     WORKLOAD_BUILD_DIR="$ARTIFACT_DIR/build/$WORKLOAD/$WORKLOAD_CONFIGURATION"
@@ -149,6 +183,16 @@ parse_global_options() {
         OPT_LEVEL=$2
         shift 2
         ;;
+      --device-code)
+        [[ $# -ge 2 ]] || die "--device-code requires jit or aot"
+        DEVICE_CODE=$2
+        shift 2
+        ;;
+      --device-target)
+        [[ $# -ge 2 ]] || die "--device-target requires a comma-separated list of bmg and/or pvc"
+        DEVICE_TARGET=$2
+        shift 2
+        ;;
       --artifact-dir)
         [[ $# -ge 2 ]] || die "--artifact-dir requires a path"
         ARTIFACT_DIR=$2
@@ -174,6 +218,8 @@ parse_global_options() {
 
   validate_debug_mode
   validate_opt_level
+  validate_device_code
+  validate_device_target
   refresh_derived_paths
   PARSED_ARGUMENTS=("$@")
 }
@@ -193,7 +239,7 @@ adapter_build() {
     esac
   done
 
-  local enable_gimli=ON enable_iga=ON enable_gdb=ON
+  local enable_gimli=ON enable_iga=OFF enable_gdb=OFF
   if [[ -n "$adapters_requested" ]]; then
     enable_gimli=OFF enable_iga=OFF enable_gdb=OFF
     IFS=',' read -ra _adapter_list <<< "$adapters_requested"
@@ -239,12 +285,14 @@ workload_build() {
     die "icpx was not found in PATH; initialize the oneAPI compiler environment first"
   fi
 
-  log "workload build: configuring $WORKLOAD (debug=$DEBUG_MODE, opt=$OPT_LEVEL)"
+  log "workload build: configuring $WORKLOAD (debug=$DEBUG_MODE, opt=$OPT_LEVEL, device-code=$DEVICE_CODE, device-target=$DEVICE_TARGET)"
   mkdir -p "$ARTIFACT_DIR"
   cmake -S "$workload_dir" -B "$WORKLOAD_BUILD_DIR" \
     -DCMAKE_CXX_COMPILER=icpx \
     -DDPC_WORKLOAD_DEBUG="$DEBUG_MODE" \
-    -DDPC_WORKLOAD_OPT="$OPT_LEVEL"
+    -DDPC_WORKLOAD_OPT="$OPT_LEVEL" \
+    -DDPC_WORKLOAD_DEVICE_CODE="$DEVICE_CODE" \
+    -DDPC_WORKLOAD_AOT_TARGET="$DEVICE_TARGET"
   cmake --build "$WORKLOAD_BUILD_DIR"
   log "workload build: binary: $BIN_PATH"
 }

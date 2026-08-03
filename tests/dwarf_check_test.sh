@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
-DWARF_CHECK="$PROJECT_DIR/dwarf-check"
+DWARF_CHECK="$PROJECT_DIR/dwarf-check.sh"
 
 fail() {
   printf 'dwarf_check_test: %s\n' "$*" >&2
@@ -24,12 +24,18 @@ help_output=$("$DWARF_CHECK" --help)
 [[ "$help_output" == *"adapter build"* ]] || fail "missing adapter build help"
 [[ "$help_output" == *"workload build"* ]] || fail "missing workload build help"
 expect_failure "unsupported debug mode: invalid" "$DWARF_CHECK" --debug invalid build
+expect_failure "unsupported device compilation mode: invalid" "$DWARF_CHECK" --device-code invalid build
+expect_failure "unsupported AOT device target: invalid" "$DWARF_CHECK" --device-target invalid build
 expect_failure "unknown run option: --unexpected" "$DWARF_CHECK" run --unexpected
 
 temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/dwarf-check-test.XXXXXX")
 trap 'rm -rf "$temporary_dir"' EXIT
-expect_failure "$temporary_dir/artifacts/build/gemm/gline-O0/bin/gemm" \
+expect_failure "$temporary_dir/artifacts/build/gemm/jit-gline-O0/bin/gemm" \
   "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --debug gline run
+expect_failure "$temporary_dir/artifacts/build/gemm/aot-bmg-pvc-g-O0/bin/gemm" \
+  "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --device-code aot run
+expect_failure "$temporary_dir/artifacts/build/gemm/aot-pvc-g-O0/bin/gemm" \
+  "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --device-code aot --device-target pvc run
 
 mkdir -p "$temporary_dir/bin" "$temporary_dir/build" "$temporary_dir/result"
 manifest="$temporary_dir/kernel_debug.json"
@@ -53,26 +59,9 @@ EOF
 cat > "$temporary_dir/bin/python3" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-output=
-sidecar=
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --output)
-      output=$2
-      shift 2
-      ;;
-    --source-locations-output)
-      sidecar=$2
-      shift 2
-      ;;
-    *)
-      shift
-      ;;
-  esac
-done
-mkdir -p "$(dirname "$output")" "$(dirname "$sidecar")"
-printf 'Address,Source File,Source Line\n0x0,source.cpp,1\n' > "$output"
-printf '{"0x0":[["other.cpp",2]]}\n' > "$sidecar"
+results_dir=$2
+mkdir -p "$results_dir"
+printf 'Address,Source File,Source Line\n0x0,source.cpp,1\n' > "$(dirname "$results_dir")/vtune_reference.csv"
 EOF
 cat > "$temporary_dir/build/dwarf-parser-check" <<'EOF'
 #!/usr/bin/env bash

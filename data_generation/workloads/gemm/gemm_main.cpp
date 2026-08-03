@@ -18,8 +18,8 @@
 
 namespace {
 
-constexpr int kMatrixSize = 2048;
-constexpr int kTotalLoops = 300;
+constexpr int kMatrixSize = 1024;
+constexpr int kTotalLoops = 30;
 constexpr float kAValue = 0.128f;
 constexpr float kBValue = 0.256f;
 constexpr float kMaxEps = 1.0e-4f;

@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -21,8 +20,6 @@
 
 namespace dwarf_parser_check {
 namespace {
-
-constexpr std::uint64_t kInstructionAlignment = 16;
 
 struct Addr2LineFrame {
   std::string function_name;
@@ -238,35 +235,27 @@ class GdbIntelAdapter final : public DwarfAdapter {
       resolution.warnings.push_back("GDB addr2line executable does not exist: " + executable->string());
       return resolution;
     }
-    if (request.runtime_kernel_address == 0U || request.kernel_binary_size == 0U) {
-      resolution.warnings.push_back(
-          "kernel debug JSON is missing runtime_kernel_address or kernel_binary_size.");
+    if (request.runtime_kernel_address == 0U) {
+      resolution.warnings.push_back("kernel debug JSON is missing runtime_kernel_address.");
+      return resolution;
+    }
+    if (request.addr2line_ips.empty()) {
+      resolution.warnings.push_back("no addr2line IPs were supplied for this kernel.");
       return resolution;
     }
 
     const std::uint64_t kernel_address = canonicalize_gpu_address(request.runtime_kernel_address);
-    const std::uint64_t size = static_cast<std::uint64_t>(request.kernel_binary_size);
-    if (size > UINT64_MAX - kernel_address || size % kInstructionAlignment != 0U) {
-      resolution.warnings.push_back("kernel binary range is invalid for 16-byte instruction lookup.");
-      return resolution;
-    }
-
-    std::vector<std::uint64_t> addresses;
-    addresses.reserve(static_cast<std::size_t>(size / kInstructionAlignment));
-    for (std::uint64_t offset = 0; offset < size; offset += kInstructionAlignment) {
-      addresses.push_back(kernel_address + offset);
-    }
 
     std::string error;
-    const std::optional<std::string> output = run_addr2line(*executable, request, addresses, error);
+    const std::optional<std::string> output =
+        run_addr2line(*executable, request, request.addr2line_ips, error);
     if (!output.has_value()) {
       resolution.warnings.push_back(std::move(error));
       return resolution;
     }
 
     for (const Addr2LineResult& result : parse_addr2line_output(*output)) {
-      if (result.address < kernel_address || result.address >= kernel_address + size ||
-          result.frames.empty()) {
+      if (result.frames.empty()) {
         continue;
       }
       const Addr2LineFrame& primary = result.frames.front();

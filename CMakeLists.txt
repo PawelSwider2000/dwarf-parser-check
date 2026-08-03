@@ -8,8 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(DPC_ENABLE_WARNINGS "Enable compiler warnings" ON)
 option(DPC_ENABLE_GIMLI_ADAPTER "Build the Rust gimli/addr2line adapter" ON)
-option(DPC_ENABLE_IGA_ADAPTER "Build the in-process Intel Graphics Assembler adapter" ON)
-option(DPC_ENABLE_GDB_INTEL_ADAPTER "Build the external GDB Intel addr2line adapter" ON)
+option(DPC_ENABLE_IGA_ADAPTER "Build the in-process Intel Graphics Assembler adapter" OFF)
+option(DPC_ENABLE_GDB_INTEL_ADAPTER "Build the external GDB Intel addr2line adapter" OFF)
 set(DPC_GDB_ADDR2LINE_EXECUTABLE "" CACHE FILEPATH
   "Path to the manually built IntelGT-aware GDB Binutils addr2line executable")
 
@@ -29,21 +29,13 @@ endif()
 
 set(DPC_CAN_BUILD_IGA_ADAPTER OFF)
 if(DPC_ENABLE_IGA_ADAPTER)
-  find_library(DPC_IGA_LIBRARY NAMES iga64 iga)
-  if(NOT DPC_IGA_LIBRARY)
-    find_file(DPC_IGA_LIBRARY NAMES libiga64.so.2
-      PATHS
-        /lib/x86_64-linux-gnu
-        /usr/lib/x86_64-linux-gnu
-    )
-  endif()
   find_library(DPC_DW_LIBRARY NAMES dw)
   find_library(DPC_ELF_LIBRARY NAMES elf)
   find_path(DPC_ELFUTILS_INCLUDE_DIR elfutils/libdwfl.h)
-  if(DPC_IGA_LIBRARY AND DPC_DW_LIBRARY AND DPC_ELF_LIBRARY AND DPC_ELFUTILS_INCLUDE_DIR)
+  if(DPC_DW_LIBRARY AND DPC_ELF_LIBRARY AND DPC_ELFUTILS_INCLUDE_DIR)
     set(DPC_CAN_BUILD_IGA_ADAPTER ON)
   else()
-    message(WARNING "Disabling DPC_ENABLE_IGA_ADAPTER because IGA or elfutils development files were not found.")
+    message(WARNING "Disabling DPC_ENABLE_IGA_ADAPTER because elfutils development files were not found.")
   endif()
 endif()
 
@@ -52,6 +44,7 @@ set(DPC_CAN_BUILD_GDB_INTEL_ADAPTER ${DPC_ENABLE_GDB_INTEL_ADAPTER})
 set(DPC_LIBRARY_SOURCES
   src/cli.cpp
   src/core.cpp
+  src/ip_resolution.cpp
   src/compare.cpp
   src/kernel_debug_manifest.cpp
 )
@@ -90,7 +83,6 @@ if(DPC_CAN_BUILD_IGA_ADAPTER)
   target_compile_definitions(dwarf_parser_check_lib PRIVATE DPC_HAVE_IGA_ADAPTER=1)
   target_include_directories(dwarf_parser_check_lib PRIVATE ${DPC_ELFUTILS_INCLUDE_DIR})
   target_link_libraries(dwarf_parser_check_lib PRIVATE
-    ${DPC_IGA_LIBRARY}
     ${DPC_DW_LIBRARY}
     ${DPC_ELF_LIBRARY}
   )

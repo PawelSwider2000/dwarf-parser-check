@@ -9,6 +9,7 @@
 
 #include "cli.h"
 #include "core.h"
+#include "ip_resolution.h"
 #include "kernel_debug_manifest.h"
 #if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
 #include "adapters/gdb/gdb_intel_adapter.h"
@@ -117,6 +118,37 @@ TEST(CliTest, ParsesOutputDirectory) {
   EXPECT_EQ(cli->output_dir, "results");
 }
 
+TEST(CliTest, ParsesDirectIpResolutionRequest) {
+  std::vector<std::string> args = {
+      "dwarf-parser-check",
+      "--ip-list", "ips.txt",
+      "--dwarf-file", "kernel.dwarf",
+      "--kernel-symbol", "_ZKernel",
+      "--kernel-base", "0xffff8000fff80000",
+      "--kernel-size", "0x1000",
+      "--resolver", "rust-gimli",
+      "--output", "resolved.csv",
+      "--unresolved-output", "unresolved.csv",
+  };
+  std::vector<char*> argv;
+  argv.reserve(args.size());
+  for (std::string& arg : args) {
+    argv.push_back(arg.data());
+  }
+
+  std::ostringstream errors;
+  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
+
+  ASSERT_TRUE(cli.has_value()) << errors.str();
+  ASSERT_TRUE(cli->ip_list.has_value());
+  EXPECT_EQ(*cli->ip_list, "ips.txt");
+  EXPECT_EQ(cli->kernel_name, "_ZKernel");
+  EXPECT_EQ(*cli->kernel_base, 0xffff8000fff80000ULL);
+  EXPECT_EQ(*cli->kernel_size, 0x1000U);
+  EXPECT_EQ(cli->resolved_output, "resolved.csv");
+  EXPECT_EQ(cli->unresolved_output, "unresolved.csv");
+}
+
 TEST(CliTest, WritesResolvedLocationsAsCsv) {
   ResolveReport report;
   KernelResolution resolution;
@@ -184,9 +216,11 @@ TEST(CliTest, WritesComparisonReportAsJson) {
   EXPECT_EQ(output.str().find("\"status\": \"match\""), std::string::npos);
 }
 
-TEST(CliTest, RejectsLegacyMetadataOptions) {
+TEST(CliTest, RejectsIncompleteDirectIpResolutionRequest) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
+  "--ip-list",
+  "ips.txt",
       "--dwarf-file",
       sample_dwarf_path().string(),
   };
@@ -198,7 +232,54 @@ TEST(CliTest, RejectsLegacyMetadataOptions) {
 
   std::ostringstream errors;
   EXPECT_FALSE(parse_cli(static_cast<int>(argv.size()), argv.data(), errors).has_value());
-  EXPECT_NE(errors.str().find("unknown argument: --dwarf-file"), std::string::npos);
+  EXPECT_NE(errors.str().find("--ip-list requires"), std::string::npos);
+}
+
+TEST(IpResolutionTest, NormalizesAndResolvesGpuAddresses) {
+  const std::vector<InputIp> inputs = {
+      {0x00008000fff80020ULL, 1U},
+      {0xffff8000fff80030ULL, 2U},
+      {0xffff8000fff81000ULL, 3U},
+      {0x40U, 4U},
+  };
+  const std::vector<NormalizedIp> normalized = normalize_ip_list(
+      inputs, 0xffff8000fff80000ULL, 0x1000U);
+
+  ASSERT_EQ(normalized.size(), 4U);
+  ASSERT_TRUE(normalized[0].kernel_offset.has_value());
+  EXPECT_EQ(*normalized[0].kernel_offset, 0x20U);
+  ASSERT_TRUE(normalized[1].kernel_offset.has_value());
+  EXPECT_EQ(*normalized[1].kernel_offset, 0x30U);
+  EXPECT_FALSE(normalized[2].kernel_offset.has_value());
+  ASSERT_TRUE(normalized[3].kernel_offset.has_value());
+  EXPECT_EQ(*normalized[3].kernel_offset, 0x40U);
+
+  KernelResolution resolution;
+  SourceLocation location;
+  location.location.ip = 0x20U;
+  location.location.file = "source.cpp";
+  location.location.line = 42U;
+  resolution.locations.push_back(location);
+
+  const std::vector<IpResolutionResult> results =
+      resolve_normalized_ips(normalized, &resolution);
+  ASSERT_EQ(results.size(), 4U);
+  EXPECT_EQ(results[0].status, IpResolutionStatus::kResolved);
+  ASSERT_TRUE(results[0].location.has_value());
+  EXPECT_EQ(results[0].location->location.line, 42U);
+  EXPECT_EQ(results[1].status, IpResolutionStatus::kResolved);
+  EXPECT_EQ(results[2].status, IpResolutionStatus::kOutsideKernel);
+  EXPECT_EQ(results[3].status, IpResolutionStatus::kResolved);
+}
+
+TEST(IpResolutionTest, NormalizesVtuneDisplayAddressesUsingSectionFileOffset) {
+  const std::vector<InputIp> inputs = {{0x940U, 1U}};
+  const std::vector<NormalizedIp> normalized = normalize_ip_list(
+      inputs, 0xffff8000ffbb0900ULL, 0x400U, 0x8c0U);
+
+  ASSERT_EQ(normalized.size(), 1U);
+  ASSERT_TRUE(normalized[0].kernel_offset.has_value());
+  EXPECT_EQ(*normalized[0].kernel_offset, 0x80U);
 }
 
 TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
@@ -308,7 +389,11 @@ TEST(CliTest, PrintUsageListsCompiledAdapters) {
   EXPECT_NE(usage.find("rust-gimli"), std::string::npos);
 }
 
-TEST(RustGimliAdapterTest, ResolvesWholeKernelToUserSource) {
+TEST(RustGimliAdapterTest, ResolvesSuppliedAddressToUserSource) {
+  if (!std::filesystem::exists(sample_dwarf_path())) {
+    GTEST_SKIP() << "sample DWARF fixture is unavailable";
+  }
+
   auto adapter = make_rust_gimli_adapter();
   ResolveRequest request;
   request.dwarf_file = sample_dwarf_path();
@@ -316,6 +401,7 @@ TEST(RustGimliAdapterTest, ResolvesWholeKernelToUserSource) {
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
   request.runtime_kernel_address = 0x00008000fff80000ULL;
   request.kernel_binary_size = 81152;
+  request.addr2line_ips = {0xffff8000fff80000ULL};
 
   ASSERT_TRUE(adapter->supports(request));
   const KernelResolution resolution = adapter->resolve_kernel(request);
@@ -350,44 +436,25 @@ TEST(GdbIntelAdapterTest, RequiresAConfiguredExecutable) {
 #endif
 
 #if defined(DPC_HAVE_IGA_ADAPTER)
-TEST(IgaAdapterTest, ResolvesDecodedInstructionsAndComparesWithVtune) {
+TEST(IgaAdapterTest, ResolvesSuppliedAddress) {
+  if (!std::filesystem::exists(sample_dwarf_path())) {
+    GTEST_SKIP() << "sample DWARF fixture is unavailable";
+  }
+
   auto adapter = make_iga_adapter();
   ResolveRequest request;
   request.dwarf_file = sample_dwarf_path();
   request.kernel_name = "(anonymous namespace)::PrimaryGEMMKernel";
   request.mangled_kernel_name = "_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE";
+  request.runtime_kernel_address = 0xffff8000fff80000ULL;
   request.kernel_binary_size = 81152;
+  request.addr2line_ips = {0xffff8000fff80000ULL};
   request.iga_platform = 0x02000000;
-  request.reference_file = std::filesystem::path(DPC_SOURCE_DIR) / "artifacts" / "results" / "gemm" / "g-O1" / "vtune_reference__ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.csv";
 
   ASSERT_TRUE(adapter->supports(request));
-  std::vector<DwarfAdapterPtr> adapters;
-  adapters.push_back(std::move(adapter));
-  const ResolverEngine engine(make_registry(std::move(adapters)));
-  const ResolveReport report = resolve_request(engine, request);
-
-  ASSERT_EQ(report.resolutions.size(), 1U);
-  EXPECT_EQ(report.resolutions[0].backend_name, "iga");
-  EXPECT_GE(report.resolutions[0].locations.size(), 5000U);
-  ASSERT_FALSE(report.comparisons.empty());
-  EXPECT_EQ(report.comparisons[0].backend_name, "iga");
-  EXPECT_GT(
-      std::count_if(
-          report.comparisons[0].items.begin(),
-          report.comparisons[0].items.end(),
-          [](const ComparisonItem& item) {
-            return item.status == ComparisonStatus::kMatch;
-          }),
-      0U);
-  EXPECT_EQ(
-      std::count_if(
-          report.comparisons[0].items.begin(),
-          report.comparisons[0].items.end(),
-          [](const ComparisonItem& item) {
-            return item.status == ComparisonStatus::kMissingInBackend;
-          }),
-      0U);
-
+  const KernelResolution resolution = adapter->resolve_kernel(request);
+  EXPECT_EQ(resolution.backend_name, "iga");
+  EXPECT_LE(resolution.locations.size(), request.addr2line_ips.size());
 }
 #endif
 

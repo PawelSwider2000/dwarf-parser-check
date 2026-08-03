@@ -35,26 +35,27 @@ class RustGimliAdapter final : public DwarfAdapter {
     resolution.backend_name = name();
     resolution.kernel_name = request.kernel_name;
 
-    if (request.mangled_kernel_name.empty() ||
-        request.runtime_kernel_address == 0U ||
-        request.kernel_binary_size == 0U) {
-      resolution.warnings.push_back(
-          "kernel debug JSON is missing mangled_name, runtime_kernel_address, or kernel_binary_size.");
+    if (request.runtime_kernel_address == 0U) {
+      resolution.warnings.push_back("kernel debug JSON is missing runtime_kernel_address.");
+      return resolution;
+    }
+    if (request.addr2line_ips.empty()) {
+      resolution.warnings.push_back("no addr2line IPs were supplied for this kernel.");
       return resolution;
     }
 
     DpcAddr2LineKernelLocations locations{};
     const KernelLocationsCleanup locations_cleanup{&locations};
-    const int status = dpc_addr2line_resolve_kernel(
+    const int status = dpc_addr2line_resolve_addresses(
         request.dwarf_file.c_str(),
-        request.mangled_kernel_name.c_str(),
         request.runtime_kernel_address,
-        request.kernel_binary_size,
+        request.addr2line_ips.data(),
+        request.addr2line_ips.size(),
         &locations);
     if (status < 0) {
-      resolution.warnings.push_back(last_error("Rust addr2line whole-kernel resolution failed"));
+      resolution.warnings.push_back(last_error("Rust addr2line resolution failed"));
     } else if (status == 0) {
-      resolution.warnings.push_back(last_error("Rust addr2line found no source locations"));
+      resolution.warnings.push_back(last_error("Rust addr2line found no source locations for supplied IPs"));
     } else {
       resolution.locations.reserve(locations.len);
       for (std::size_t index = 0; index < locations.len; ++index) {

@@ -132,6 +132,10 @@ std::vector<VtuneManifestEntry> load_vtune_manifest(
       try { return find_string_field(record, "reference_csv"); }
       catch (...) { return {}; }
     }();
+    entry.ip_list = [&]() -> std::string {
+      try { return find_string_field(record, "ip_list"); }
+      catch (...) { return {}; }
+    }();
     entry.section_file_offset =
         find_uint64_field(record, "section_file_offset").value_or(0);
     entries.push_back(std::move(entry));

@@ -4,6 +4,7 @@
 Outputs two CSVs for comparison:
   - vtune_addr_srcline.csv   (from VTune DB, one row per unique address)
   - dwarf_addr_srcline.csv   (from raw .debug_line via pyelftools)
+    - vtune_ips_<kernel>.txt   (raw VTune display IPs, one per line)
 
 Usage:
   python3 extract_addr_srcline.py [results_dir]
@@ -154,7 +155,12 @@ def extract_dwarf(
         elf = ELFFile(f)
         # relocations are no-ops for Intel GPU zebin (all zero-valued)
         dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
-        cu0_structs = next(dwarf.iter_CUs()).structs
+        first_cu = next(dwarf.iter_CUs(), None)
+        if first_cu is None:
+            print("No DWARF compilation units found; skipping raw DWARF extraction",
+                  file=sys.stderr)
+            return []
+        cu0_structs = first_cu.structs
 
         # Find .debug_line CU offsets by scanning unit_length headers
         # Read from ocloc disasm dump (avoids pyelftools stream issues)
@@ -203,11 +209,12 @@ def extract_dwarf(
 # 3. VTune reference CSV (per kernel, same format as correlate_vtune_report output)
 # ---------------------------------------------------------------------------
 def generate_vtune_reference(ref_csv: Path, out_dir: Path) -> list[dict]:
-    """Write one vtune_reference_<kernel>.csv per kernel found in the VTune DB.
+    """Write a reference CSV and raw IP list per kernel found in the VTune DB.
 
     Columns: Address, Source File, Source Line, Assembly, <any extra cols from ref_csv>.
     Rows come from the DB (nested_level=None = raw DWARF entry); assembly and extra
-    counter columns are filled from ref_csv where available.
+    counter columns are filled from ref_csv where available. The IP list preserves
+    VTune display addresses for direct addr2line-style resolution.
     """
     conn = sqlite3.connect(VTUNE_DB)
     # Fetch raw DWARF entries only (nested_level IS NULL) to stay true to .debug_line
@@ -251,6 +258,7 @@ def generate_vtune_reference(ref_csv: Path, out_dir: Path) -> list[dict]:
     for kernel, entries in sorted(by_kernel.items()):
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel)
         out_path = out_dir / f"vtune_reference_{safe}.csv"
+        ip_list_path = out_dir / f"vtune_ips_{safe}.txt"
         # section_file_offset = kernel base = display_address - rva (constant per kernel)
         section_file_offset = entries[0][0] - entries[0][1] if entries else 0
         with open(out_path, "w", newline="") as f:
@@ -261,9 +269,15 @@ def generate_vtune_reference(ref_csv: Path, out_dir: Path) -> list[dict]:
                 w.writerow([hex(rva), path, line if line else ""] +
                            [extra.get(c, "") for c in extra_cols])
         print(f"Written {len(entries)} rows → {out_path}")
+        unique_addresses = sorted({addr for addr, _, _, _ in entries})
+        with open(ip_list_path, "w") as f:
+            for addr in unique_addresses:
+                f.write(f"{addr:#x}\n")
+        print(f"Written {len(unique_addresses)} IPs → {ip_list_path}")
         manifest_kernels.append({
             "name": kernel,
             "reference_csv": str(out_path.resolve()),
+            "ip_list": str(ip_list_path.resolve()),
             "section_file_offset": hex(section_file_offset),
         })
     return manifest_kernels

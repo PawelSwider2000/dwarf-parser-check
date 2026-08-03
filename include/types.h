@@ -14,6 +14,7 @@ struct ResolveRequest {
   std::string mangled_kernel_name;
   std::uint64_t runtime_kernel_address = 0;
   std::size_t kernel_binary_size = 0;
+  std::vector<std::uint64_t> addr2line_ips;
   std::optional<std::uint32_t> iga_platform;
   std::optional<std::filesystem::path> reference_file;
 };

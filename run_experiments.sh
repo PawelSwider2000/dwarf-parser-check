@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run dwarf-parser-check experiments across all combinations of
-# workloads, debug modes, and optimization levels.
+# Run dwarf-parser-check experiments across all combinations of workloads,
+# debug modes, optimization levels, and device compilation modes.
 set -euo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -10,6 +10,10 @@ DWARF_CHECK="$SCRIPT_DIR/dwarf-check.sh"
 WORKLOADS=(gemm)
 DEBUG_MODES=(g gline)
 OPT_LEVELS=(O0 O1 O2)
+DEVICE_CODE_MODES=(jit aot)
+
+# AOT builds produce one fat binary containing native images for each target.
+AOT_TARGETS=${AOT_TARGETS:-bmg,pvc}
 
 # Comma-separated adapter names to build and run (rust-gimli, iga, gdb-intel).
 # Defaults to rust-gimli because gdb-intel requires an external addr2line binary.
@@ -43,28 +47,37 @@ done
 "$DWARF_CHECK" $EXTRA_FLAGS adapter build "${_adapter_flags[@]}"
 
 # ── Run experiments ────────────────────────────────────────────────────────────
-total=$(( ${#WORKLOADS[@]} * ${#DEBUG_MODES[@]} * ${#OPT_LEVELS[@]} ))
+total=$(( ${#WORKLOADS[@]} * ${#DEBUG_MODES[@]} * ${#OPT_LEVELS[@]} * ${#DEVICE_CODE_MODES[@]} ))
 count=0
 failed=()
 
 for workload in "${WORKLOADS[@]}"; do
   for debug in "${DEBUG_MODES[@]}"; do
     for opt in "${OPT_LEVELS[@]}"; do
-      (( count++ )) || true
-      label="$workload/debug=$debug/opt=$opt"
-      log "[$count/$total] experiment: $label"
+      for device_code in "${DEVICE_CODE_MODES[@]}"; do
+        (( count++ )) || true
+        label="$workload/debug=$debug/opt=$opt/device-code=$device_code"
+        arguments=(
+          --workload "$workload"
+          --debug "$debug"
+          --opt "$opt"
+          --device-code "$device_code"
+        )
+        if [[ "$device_code" == aot ]]; then
+          label+="/device-target=$AOT_TARGETS"
+          arguments+=(--device-target "$AOT_TARGETS")
+        fi
+        arguments+=(all --adapters "$ADAPTERS")
+        log "[$count/$total] experiment: $label"
 
-      # shellcheck disable=SC2086
-      if "$DWARF_CHECK" $EXTRA_FLAGS \
-          --workload "$workload" \
-          --debug "$debug" \
-          --opt "$opt" \
-          all --adapters "$ADAPTERS"; then
-        log "[$count/$total] PASS: $label"
-      else
-        log "[$count/$total] FAIL: $label"
-        failed+=("$label")
-      fi
+        # shellcheck disable=SC2086
+        if "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}"; then
+          log "[$count/$total] PASS: $label"
+        else
+          log "[$count/$total] FAIL: $label"
+          failed+=("$label")
+        fi
+      done
     done
   done
 done

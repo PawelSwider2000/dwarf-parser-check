@@ -43,7 +43,8 @@ repeating the hardware profiling run.
 Global options must precede the first command:
 
 ```bash
-./dwarf-check --workload gemm --debug g --opt O0 --artifact-dir artifacts build run
+./dwarf-check --workload gemm --debug g --opt O0 --device-code jit --artifact-dir artifacts build run
+./dwarf-check --workload gemm --debug g --opt O2 --device-code aot --device-target bmg all
 ./dwarf-check analyze --adapters all
 ```
 
@@ -54,18 +55,23 @@ Defaults:
 | `--workload` | `gemm` |
 | `--debug` | `g` (`g`, `gline`, or `none`) |
 | `--opt` | `O0` (`O0`, `O1`, or `O2`) |
+| `--device-code` | `jit` (`jit` or `aot`) |
+| `--device-target` | `bmg,pvc` (comma-separated `bmg` and/or `pvc`; used by AOT) |
 | `--artifact-dir` | `artifacts` |
 | `--build-dir` | `build` |
 
 These paths are derived from the selected workload and configuration:
 
 ```text
-WORKLOAD_BUILD_DIR=<artifact-dir>/build/<workload>/<debug>-<opt>
-WORKLOAD_RESULTS_DIR=<artifact-dir>/results/<workload>/<debug>-<opt>
+WORKLOAD_BUILD_DIR=<artifact-dir>/build/<workload>/<device-code>-<device-target>-<debug>-<opt>
+WORKLOAD_RESULTS_DIR=<artifact-dir>/results/<workload>/<device-code>-<device-target>-<debug>-<opt>
 KERNEL_DEBUG_JSON=<results-dir>/kernel_debug.json
 VTUNE_RESULT_DIR=<results-dir>/vtune_results
 VTUNE_REFERENCE_CSV=<results-dir>/vtune_reference.csv
 ```
+
+JIT paths omit `<device-target>`; for example, `jit-g-O2`. AOT paths include it;
+for example, `aot-bmg-pvc-g-O2`. This keeps runtime-JIT and AOT artifacts separate.
 
 `WORKLOAD_BUILD_DIR`, `WORKLOAD_RESULTS_DIR`, `KERNEL_DEBUG_JSON`,
 `VTUNE_RESULT_DIR`, and `VTUNE_REFERENCE_CSV` remain usable as environment
@@ -73,13 +79,45 @@ overrides. `BUILD_TYPE`, `CMAKE_GENERATOR`, `GDB_ADDR2LINE`, `VTUNE_BIN`,
 `VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, and `READELF_BIN` are also
 environment-controlled.
 
+`--device-code jit` is the default and embeds portable SPIR-V for runtime
+compilation. `--device-code aot` uses `spir64_gen` and OCLOC during the build.
+By default it embeds native images for both `bmg` and `pvc`; select one with
+`--device-target bmg` or `--device-target pvc`. An AOT binary must run on a GPU
+matching one of its embedded images. The local Arc B580 uses `bmg`.
+
+Run the two modes as separate workflows:
+
+```bash
+# Portable SPIR-V compiled by the driver at runtime.
+./dwarf-check --debug g --opt O2 --device-code jit all
+
+# Native Battlemage and Ponte Vecchio code compiled during the build.
+# The Arc B580 selects the embedded BMG image at runtime.
+./dwarf-check --debug g --opt O2 --device-code aot all
+
+# Build only here; execution requires a Ponte Vecchio GPU.
+./dwarf-check --debug g --opt O2 --device-code aot --device-target pvc workload build
+```
+
+`--debug gline` passes `-gline-tables-only`. oneAPI DPC++ 2026.1 does not support
+that option for Intel SYCL device targets, so use `--debug g` for device DWARF.
+
 `run` requires an already-built workload binary and unrestricted ptrace access
 for VTune. `analyze` requires both an existing VTune result and manifest.
 
+## Experiment Matrix
+
+`./run_experiments.sh` runs every debug/optimization configuration as both JIT
+and AOT: 12 experiments for the default GEMM workload. Each AOT experiment
+builds a BMG+PVC fat binary, while mode-specific artifact paths keep its build
+and result files separate from the JIT experiment. Set `AOT_TARGETS=bmg` or
+`AOT_TARGETS=pvc` to restrict the AOT target list.
+
 ## Output
 
-`analyze` creates `vtune_reference.csv` and passes it to the resolver as the
-sole comparison reference. It also retains `source_locations.json` as a
+`analyze` creates a per-kernel VTune reference and addr2line IP list, then passes
+both to the resolver. Adapters resolve only the supplied IPs; they do not scan
+or infer instruction boundaries. It also retains `source_locations.json` as a
 diagnostic sidecar, but does not use that JSON file for comparisons.
 
 For each selected adapter, the output directory contains a resolution CSV and
@@ -93,15 +131,40 @@ reference, and report output directory:
 
 ```bash
 ./build/dwarf-parser-check \
-  --kernel-debug-json artifacts/results/gemm/g-O0/kernel_debug.json \
+  --kernel-debug-json artifacts/results/gemm/jit-g-O0/kernel_debug.json \
   --adapters all \
-  --output-dir artifacts/results/gemm/g-O0 \
-  --reference artifacts/results/gemm/g-O0/vtune_reference.csv
+  --output-dir artifacts/results/gemm/jit-g-O0 \
+  --reference artifacts/results/gemm/jit-g-O0/vtune_reference.csv
 ```
 
 The manifest contains each kernel's demangled display name, mangled symbol
-selector, ELF/DWARF path, and runtime metadata. Resolved instruction addresses
-are reported as offsets from the beginning of each kernel.
+selector, ELF/DWARF path, runtime metadata, and matching VTune IP list.
+Resolved addresses are reported as offsets from the beginning of each kernel.
+
+### Direct IP Resolution
+
+Resolve a plain file of VTune display IPs to source locations without running
+the adapter comparison workflow:
+
+```bash
+./build/dwarf-parser-check \
+  --ip-list artifacts/results/gemm/jit-g-O2/vtune_ips__ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.txt \
+  --dwarf-file artifacts/results/gemm/jit-g-O2/_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.dwarf \
+  --kernel-symbol _ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE \
+  --kernel-base 0x8000ffbb0900 \
+  --kernel-size 1024 \
+  --output artifacts/results/gemm/jit-g-O2/resolved_ips.csv \
+  --unresolved-output artifacts/results/gemm/jit-g-O2/unresolved_ips.csv
+```
+
+`--ip-list` accepts one hexadecimal address per line and canonicalizes Intel
+GPU 48-bit addresses before subtracting `--kernel-base`. The resolved CSV
+contains the original IP, normalized kernel offset, and source location. The
+unresolved CSV records every address outside the kernel or without a source
+line. `extract_addr_srcline.py` writes a de-duplicated
+`vtune_ips_<kernel>.txt` list beside each generated VTune reference CSV; use
+the matching `section_file_offset` in `vtune_manifest.json` as `--kernel-base`
+and the matching kernel metadata as `--kernel-size`.
 
 ## Tests
 
