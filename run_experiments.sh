@@ -75,6 +75,13 @@ if path.is_file():
       "mismatch_count": mismatch_count,
       "summary": summary,
     }
+    if status == "PASS" and comparisons and all(
+        comparison.get("status") == "skipped" for comparison in comparisons
+    ):
+      record["status"] = "SKIP"
+      record["skip_reasons"] = [
+          comparison.get("skip_reason", "") for comparison in comparisons
+      ]
   except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
     record["comparison_error"] = str(error)
 else:
@@ -82,6 +89,7 @@ else:
 
 with open(records_path, "a", encoding="utf-8") as records_file:
   records_file.write(json.dumps(record) + "\n")
+print(record["status"])
 PY
 }
 
@@ -97,6 +105,7 @@ records = [json.loads(line) for line in records_path.read_text().splitlines()]
 summary = {
   "total": len(records),
   "passed": sum(record["status"] == "PASS" for record in records),
+  "skipped": sum(record["status"] == "SKIP" for record in records),
   "failed": sum(record["status"] == "FAIL" for record in records),
 }
 summary_path.write_text(json.dumps({"summary": summary, "experiments": records}, indent=2) + "\n")
@@ -106,6 +115,37 @@ PY
 
 # ── Build the adapter once (shared across all experiments) ─────────────────────
 log() { printf '[experiments] %s\n' "$*"; }
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--clean-results]
+
+  --clean-results  Remove each experiment's results directory before it runs.
+EOF
+}
+
+clean_results=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --clean-results)
+      clean_results=true
+      shift
+      ;;
+    --help|-h|help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'run_experiments: unknown option: %s\n' "$1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+clean_results_flag=()
+if [[ "$clean_results" == true ]]; then
+  clean_results_flag=(--clean-results)
+fi
 
 log "building dwarf-parser-check adapter (adapters: $ADAPTERS)"
 # Convert comma-separated ADAPTERS into repeated --adapter flags
@@ -129,6 +169,7 @@ for workload in "${WORKLOADS[@]}"; do
         (( count++ )) || true
         label="$workload/debug=$debug/opt=$opt/device-code=$device_code"
         arguments=(
+          "${clean_results_flag[@]}"
           --workload "$workload"
           --debug "$debug"
           --opt "$opt"
@@ -146,12 +187,12 @@ for workload in "${WORKLOADS[@]}"; do
 
         # shellcheck disable=SC2086
         if "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}"; then
-          log "[$count/$total] PASS: $label"
-          write_experiment_record PASS "$label" "$workload" "$configuration"
+          experiment_status=$(write_experiment_record PASS "$label" "$workload" "$configuration")
+          log "[$count/$total] $experiment_status: $label"
         else
           log "[$count/$total] FAIL: $label"
           failed+=("$label")
-          write_experiment_record FAIL "$label" "$workload" "$configuration"
+          write_experiment_record FAIL "$label" "$workload" "$configuration" >/dev/null
         fi
       done
     done
@@ -160,7 +201,7 @@ done
 
 # ── Summary ────────────────────────────────────────────────────────────────────
 echo
-log "results: $((count - ${#failed[@]}))/$count passed"
+log "results: $((count - ${#failed[@]}))/$count completed"
 write_experiment_summary
 if [[ ${#failed[@]} -gt 0 ]]; then
   log "failed experiments:"

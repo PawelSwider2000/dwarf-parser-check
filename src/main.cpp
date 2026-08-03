@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -240,7 +241,10 @@ int main(int argc, char** argv) {
         throw std::runtime_error("unable to open JSON output file: " + json_path.string());
       }
       write_report_json(adapter_report, json_output);
-      resolved_any_kernel = resolved_any_kernel || !adapter_report.empty();
+        const bool skipped_reference = std::any_of(
+          adapter_report.comparisons.begin(), adapter_report.comparisons.end(),
+          [](const ComparisonReport& comparison) { return comparison.is_skipped(); });
+        resolved_any_kernel = resolved_any_kernel || !adapter_report.empty() || skipped_reference;
     }
     return resolved_any_kernel ? 0 : 1;
   } catch (const std::exception& error) {

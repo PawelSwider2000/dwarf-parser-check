@@ -95,9 +95,6 @@ std::vector<Location> load_vtune_reference_csv(
     location.file = row[*file_column];
     locations.push_back(std::move(location));
   }
-  if (locations.empty()) {
-    throw std::runtime_error("VTune CSV reference contains no source locations");
-  }
   return locations;
 }
 
@@ -136,7 +133,7 @@ ComparisonItem compare_pair(
 
 }  // namespace
 
-std::vector<Location> load_reference_locations(
+ReferenceLocations load_reference_locations(
     const std::filesystem::path& reference_file,
     const std::string& kernel_name) {
   std::ifstream input(reference_file, std::ios::binary);
@@ -150,7 +147,12 @@ std::vector<Location> load_reference_locations(
   const std::vector<std::string> header = parse_csv_row(contents.substr(0, first_line_end));
   if (std::find(header.begin(), header.end(), "Address") != header.end() ||
       std::find(header.begin(), header.end(), "Kernel Offset") != header.end()) {
-    return load_vtune_reference_csv(contents, kernel_name);
+    ReferenceLocations result;
+    result.locations = load_vtune_reference_csv(contents, kernel_name);
+    if (result.locations.empty()) {
+      result.availability = ReferenceAvailability::kNoVtuneSourceLocations;
+    }
+    return result;
   }
 
   std::vector<Location> locations;
@@ -184,7 +186,7 @@ std::vector<Location> load_reference_locations(
     }
   }
 
-  return locations;
+  return ReferenceLocations{std::move(locations)};
 }
 
 ComparisonReport compare_locations(

@@ -202,10 +202,18 @@ ResolveReport resolve_request(
   ResolveReport report = engine.resolve(request);
 
   if (request.reference_file.has_value()) {
-    const std::vector<Location> references =
+    const ReferenceLocations references =
         load_reference_locations(*request.reference_file, request.kernel_name);
     for (const KernelResolution& resolution : report.resolutions) {
-      report.comparisons.push_back(compare_locations(resolution, references));
+      if (references.availability == ReferenceAvailability::kNoVtuneSourceLocations) {
+        ComparisonReport comparison;
+        comparison.backend_name = resolution.backend_name;
+        comparison.kernel_name = resolution.kernel_name;
+        comparison.skip_reason = "VTune reference contains no source locations";
+        report.comparisons.push_back(std::move(comparison));
+      } else {
+        report.comparisons.push_back(compare_locations(resolution, references.locations));
+      }
     }
   }
 

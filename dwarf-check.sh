@@ -18,6 +18,7 @@ VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
 READELF_BIN=${READELF_BIN:-readelf}
 ADAPTERS=${ADAPTERS:-rust-gimli}
+CLEAN_RESULTS=false
 
 workload_configuration_from_environment=${WORKLOAD_CONFIGURATION+x}
 workload_build_dir_from_environment=${WORKLOAD_BUILD_DIR+x}
@@ -56,6 +57,7 @@ Global options must appear before the first command:
   --device-target LIST  Comma-separated AOT targets: bmg, pvc (default: bmg,pvc)
   --artifact-dir PATH   Workload artifact root (default: artifacts)
   --build-dir PATH      dwarf-parser-check CMake build directory (default: build)
+  --clean-results       Remove the selected results directory before run or all
   --help, -h            Show this help text
 
 Commands:
@@ -203,6 +205,10 @@ parse_global_options() {
         BUILD_DIR=$2
         shift 2
         ;;
+      --clean-results)
+        CLEAN_RESULTS=true
+        shift
+        ;;
       --help|-h|help)
         usage
         exit 0
@@ -343,6 +349,19 @@ vtune_collect() {
   log "run: VTune result: $VTUNE_RESULT_DIR"
 }
 
+clean_workload_results() {
+  if [[ "$CLEAN_RESULTS" != true ]]; then
+    return 0
+  fi
+  if [[ -z "$WORKLOAD_RESULTS_DIR" || "$WORKLOAD_RESULTS_DIR" == / || "$WORKLOAD_RESULTS_DIR" == . ]]; then
+    die "refusing to clean unsafe results directory: $WORKLOAD_RESULTS_DIR"
+  fi
+  if [[ -e "$WORKLOAD_RESULTS_DIR" ]]; then
+    log "cleaning previous results: $WORKLOAD_RESULTS_DIR"
+    rm -rf "$WORKLOAD_RESULTS_DIR"
+  fi
+}
+
 generate_vtune_reference() {
   if [[ ! -d "$VTUNE_RESULT_DIR" ]]; then
     die "VTune result directory not found: $VTUNE_RESULT_DIR; run 'dwarf-check run' first"
@@ -428,6 +447,7 @@ run_command() {
   KERNEL_DEBUG_JSON=$kernel_debug_json
   VTUNE_RESULT_DIR=$result_dir
   VTUNE_TARGET_GPU=$target_gpu
+  clean_workload_results
   workload_execute
   vtune_collect
   REMAINING_ARGUMENTS=("$@")
@@ -500,6 +520,7 @@ all_command() {
         ;;
     esac
   done
+  clean_workload_results
   workload_build
   workload_execute
   vtune_collect

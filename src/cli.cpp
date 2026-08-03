@@ -421,8 +421,13 @@ void print_report(const ResolveReport& report, std::ostream& output) {
 
   for (const ComparisonReport& comparison : report.comparisons) {
     output << "comparison (" << comparison.backend_name << ", " << comparison.kernel_name
-           << "): " << comparison.mismatch_count() << " mismatch(es)";
-    output << (comparison.has_mismatches() ? " found" : ", all matched") << '\n';
+           << "): ";
+    if (comparison.is_skipped()) {
+      output << "skipped: " << *comparison.skip_reason << '\n';
+    } else {
+      output << comparison.mismatch_count() << " mismatch(es)";
+      output << (comparison.has_mismatches() ? " found" : ", all matched") << '\n';
+    }
   }
 
   for (const std::string& diagnostic : report.diagnostics) {
@@ -466,6 +471,11 @@ void write_report_json(const ResolveReport& report, std::ostream& output) {
     output << "    {\n"
            << "      \"backend\": \"" << json_escape(comparison.backend_name) << "\",\n"
            << "      \"kernel\": \"" << json_escape(comparison.kernel_name) << "\",\n"
+           << "      \"status\": \"" << (comparison.is_skipped() ? "skipped" : "compared") << "\",\n";
+    if (comparison.is_skipped()) {
+      output << "      \"skip_reason\": \"" << json_escape(*comparison.skip_reason) << "\",\n";
+    }
+    output
            << "      \"mismatch_count\": " << comparison.mismatch_count() << ",\n"
            << "      \"summary\": {\n"
            << "        \"compared_offsets\": " << comparison.items.size() << ",\n"

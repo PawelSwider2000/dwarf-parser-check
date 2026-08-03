@@ -36,6 +36,11 @@ struct ComparisonReport {
   std::string backend_name;
   std::string kernel_name;
   std::vector<ComparisonItem> items;
+  std::optional<std::string> skip_reason;
+
+  [[nodiscard]] bool is_skipped() const noexcept {
+    return skip_reason.has_value();
+  }
 
   [[nodiscard]] bool has_mismatches() const noexcept {
     return std::any_of(items.begin(), items.end(), [](const ComparisonItem& item) {
@@ -50,7 +55,17 @@ struct ComparisonReport {
   }
 };
 
-std::vector<Location> load_reference_locations(
+enum class ReferenceAvailability {
+  kAvailable,
+  kNoVtuneSourceLocations,
+};
+
+struct ReferenceLocations {
+  std::vector<Location> locations;
+  ReferenceAvailability availability = ReferenceAvailability::kAvailable;
+};
+
+ReferenceLocations load_reference_locations(
     const std::filesystem::path& reference_file,
     const std::string& kernel_name);
 

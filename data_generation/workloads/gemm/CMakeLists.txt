@@ -42,6 +42,7 @@ find_library(DPC_LEVEL_ZERO_LOADER_LIBRARY NAMES ze_loader REQUIRED)
 
 add_executable(gemm
   gemm_main.cpp
+  gemm_utils.cpp
   ../../kernel_debug_info.cpp
 )
 

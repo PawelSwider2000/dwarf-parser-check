@@ -85,3 +85,68 @@ grep -Fx -- "$reference_csv" "$adapter_arguments" >/dev/null || fail "adapter di
 if grep -Fq 'source_locations.json' "$adapter_arguments"; then
   fail "adapter received source_locations.json instead of vtune_reference.csv"
 fi
+
+matrix_artifact_dir="$temporary_dir/matrix-artifacts"
+matrix_clean_log="$temporary_dir/matrix-clean.log"
+fake_dwarf_check="$temporary_dir/fake-dwarf-check"
+cat > "$fake_dwarf_check" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $1 == adapter ]]; then
+  exit 0
+fi
+
+[[ $1 == --clean-results ]] || exit 1
+printf '%s\n' "$*" >> "$DPC_TEST_CLEAN_LOG"
+shift
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --workload|--debug|--opt|--device-code|--device-target)
+      case "$1" in
+        --debug) debug=$2 ;;
+        --opt) opt=$2 ;;
+        --device-code) device_code=$2 ;;
+        --device-target) device_target=$2 ;;
+      esac
+      shift 2
+      ;;
+    all)
+      shift
+      break
+      ;;
+    *)
+      exit 1
+      ;;
+  esac
+done
+
+if [[ $device_code == aot ]]; then
+  configuration="aot-${device_target//,/-}-${debug}-${opt}"
+else
+  configuration="jit-${debug}-${opt}"
+fi
+output_dir="$ARTIFACT_DIR/results/gemm/$configuration"
+mkdir -p "$output_dir"
+cat > "$output_dir/adapter_rust-gimli_vtune_comparison.json" <<'JSON'
+{"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"skipped","skip_reason":"VTune reference contains no source locations","mismatch_count":0,"summary":{"compared_offsets":0,"matches":0,"file_mismatches":0,"line_mismatches":0,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
+JSON
+EOF
+chmod +x "$fake_dwarf_check"
+
+DPC_TEST_CLEAN_LOG="$matrix_clean_log" \
+ARTIFACT_DIR="$matrix_artifact_dir" \
+DWARF_CHECK="$fake_dwarf_check" \
+"$PROJECT_DIR/run_experiments.sh" --clean-results
+
+[[ $(wc -l < "$matrix_clean_log") -eq 12 ]] || fail "cleanup option was not forwarded to every experiment"
+python3 - "$matrix_artifact_dir/experiment_summary.json" <<'PY'
+import json
+import sys
+
+summary = json.load(open(sys.argv[1]))
+if summary["summary"] != {"total": 12, "passed": 0, "skipped": 12, "failed": 0}:
+    raise SystemExit("incorrect experiment summary")
+if any(experiment["status"] != "SKIP" for experiment in summary["experiments"]):
+    raise SystemExit("expected every experiment to be skipped")
+PY

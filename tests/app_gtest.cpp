@@ -216,6 +216,29 @@ TEST(CliTest, WritesComparisonReportAsJson) {
   EXPECT_EQ(output.str().find("\"status\": \"match\""), std::string::npos);
 }
 
+TEST(CompareTest, MarksEmptyVtuneReferenceAsSkipped) {
+  const std::filesystem::path reference_path =
+      std::filesystem::temp_directory_path() / "dwarf_parser_check_empty_vtune_reference.csv";
+  {
+    std::ofstream reference(reference_path);
+    reference << "Kernel Offset,Source File,Source Line\n";
+  }
+
+  ResolveRequest request;
+  request.kernel_name = "test-kernel";
+  request.reference_file = reference_path;
+  std::vector<DwarfAdapterPtr> adapters;
+  adapters.push_back(std::make_unique<FixedResolutionAdapter>("test-adapter"));
+  const ResolveReport report = resolve_request(ResolverEngine(make_registry(std::move(adapters))), request);
+
+  ASSERT_EQ(report.comparisons.size(), 1U);
+  EXPECT_TRUE(report.comparisons.front().is_skipped());
+  EXPECT_EQ(
+      *report.comparisons.front().skip_reason,
+      "VTune reference contains no source locations");
+  std::filesystem::remove(reference_path);
+}
+
 TEST(CliTest, RejectsIncompleteDirectIpResolutionRequest) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
@@ -369,14 +392,16 @@ TEST(ComparisonTest, LoadsEveryMappedVtuneCsvRow) {
               << "0x50,other.cpp,20,nop\n";
   }
 
-  const std::vector<Location> locations = load_reference_locations(reference_path, "test-kernel");
+  const ReferenceLocations reference_locations =
+      load_reference_locations(reference_path, "test-kernel");
   std::filesystem::remove(reference_path);
 
-  ASSERT_EQ(locations.size(), 2U);
-  EXPECT_EQ(locations[0].ip, 0x40U);
-  EXPECT_EQ(locations[0].file, "source.cpp");
-  EXPECT_EQ(locations[1].ip, 0x50U);
-  EXPECT_EQ(locations[1].line, 20U);
+  EXPECT_EQ(reference_locations.availability, ReferenceAvailability::kAvailable);
+  ASSERT_EQ(reference_locations.locations.size(), 2U);
+  EXPECT_EQ(reference_locations.locations[0].ip, 0x40U);
+  EXPECT_EQ(reference_locations.locations[0].file, "source.cpp");
+  EXPECT_EQ(reference_locations.locations[1].ip, 0x50U);
+  EXPECT_EQ(reference_locations.locations[1].line, 20U);
 }
 
 TEST(CliTest, PrintUsageListsCompiledAdapters) {
