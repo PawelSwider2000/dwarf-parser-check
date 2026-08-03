@@ -237,6 +237,14 @@ def correlate(
     return mapped, instruction_count
 
 
+def kernel_input_csv(input_csv: Path, kernel_name: str) -> Path:
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel_name)[:80]
+    candidate = input_csv.with_name(
+        f"{input_csv.stem}_{safe_name}{input_csv.suffix}"
+    )
+    return candidate if candidate.is_file() else input_csv
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
@@ -257,13 +265,13 @@ def main() -> int:
 
         if len(sections) == 1:
             # ── Single-section: original behaviour ─────────────────────────
-            _name, text_address, _elf_idx = sections[0]
+            kernel_name, text_address, _elf_idx = sections[0]
             comp_dir = compilation_directory(arguments.readelf, zebin)
             line_addresses, line_locations = decoded_lines(
                 arguments.readelf, zebin, comp_dir
             )
             mapped, instruction_count = correlate(
-                arguments.input, arguments.output,
+                kernel_input_csv(arguments.input, kernel_name), arguments.output,
                 text_address, line_addresses, line_locations,
             )
             print(
@@ -274,7 +282,7 @@ def main() -> int:
                 _file_offset = -text_address  # text_address = -file_offset
                 _write_manifest(
                     arguments.manifest_output, zebin,
-                    [(_name, arguments.output, _file_offset)],
+                    [(kernel_name, arguments.output, _file_offset)],
                 )
         else:
             # ── Multi-section: one output CSV per kernel ────────────────────
@@ -308,7 +316,7 @@ def main() -> int:
                         cu_block, comp_dir, kernel_name
                     )
                     mapped, instruction_count = correlate(
-                        arguments.input, kernel_csv,
+                        kernel_input_csv(arguments.input, kernel_name), kernel_csv,
                         text_address, line_addresses, line_locations,
                     )
                     file_offset = -text_address  # text_address = -file_offset

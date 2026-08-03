@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(dwarf_parser_check_gemm LANGUAGES CXX)
+project(dwarf_parser_check_workload LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(DPC_WORKLOAD "gemm" CACHE STRING "Workload to build")
+set_property(CACHE DPC_WORKLOAD PROPERTY STRINGS gemm control_flow)
 set(DPC_WORKLOAD_DEBUG "g" CACHE STRING "Device debug information: g, gline, or none")
 set_property(CACHE DPC_WORKLOAD_DEBUG PROPERTY STRINGS g gline none)
 set(DPC_WORKLOAD_OPT "O0" CACHE STRING "Optimization level: O0, O1, or O2")
@@ -14,6 +16,14 @@ set(DPC_WORKLOAD_DEVICE_CODE "jit" CACHE STRING "Device compilation mode: jit or
 set_property(CACHE DPC_WORKLOAD_DEVICE_CODE PROPERTY STRINGS jit aot)
 set(DPC_WORKLOAD_AOT_TARGET "bmg,pvc" CACHE STRING "Comma-separated Intel GPU AOT targets: bmg and/or pvc")
 set_property(CACHE DPC_WORKLOAD_AOT_TARGET PROPERTY STRINGS bmg,pvc bmg pvc)
+
+if(DPC_WORKLOAD STREQUAL "gemm")
+  set(DPC_WORKLOAD_SOURCE workloads/gemm/gemm_workload.cpp)
+elseif(DPC_WORKLOAD STREQUAL "control_flow")
+  set(DPC_WORKLOAD_SOURCE workloads/control_flow/control_flow_workload.cpp)
+else()
+  message(FATAL_ERROR "DPC_WORKLOAD must name a supported workload")
+endif()
 
 set(_dpc_workload_debug_options g gline none)
 if(NOT DPC_WORKLOAD_DEBUG IN_LIST _dpc_workload_debug_options)
@@ -40,26 +50,27 @@ endforeach()
 
 find_library(DPC_LEVEL_ZERO_LOADER_LIBRARY NAMES ze_loader REQUIRED)
 
-add_executable(gemm
-  gemm_main.cpp
-  gemm_utils.cpp
-  ../../kernel_debug_info.cpp
+add_executable(${DPC_WORKLOAD}
+  main.cpp
+  ${DPC_WORKLOAD_SOURCE}
+  workload_utils.cpp
+  kernel_debug_info.cpp
 )
 
-target_include_directories(gemm PRIVATE ../..)
-target_compile_options(gemm PRIVATE
+target_include_directories(${DPC_WORKLOAD} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(${DPC_WORKLOAD} PRIVATE
   -fsycl
   -${DPC_WORKLOAD_OPT}
 )
-target_link_options(gemm PRIVATE -fsycl)
+target_link_options(${DPC_WORKLOAD} PRIVATE -fsycl)
 
 if(DPC_WORKLOAD_DEVICE_CODE STREQUAL "aot")
-  target_compile_options(gemm PRIVATE
+  target_compile_options(${DPC_WORKLOAD} PRIVATE
     -fsycl-targets=spir64_gen
     -Xsycl-target-backend=spir64_gen
     "-device ${DPC_WORKLOAD_AOT_TARGET}"
   )
-  target_link_options(gemm PRIVATE
+  target_link_options(${DPC_WORKLOAD} PRIVATE
     -fsycl-targets=spir64_gen
     -Xsycl-target-backend=spir64_gen
     "-device ${DPC_WORKLOAD_AOT_TARGET}"
@@ -67,12 +78,12 @@ if(DPC_WORKLOAD_DEVICE_CODE STREQUAL "aot")
 endif()
 
 if(DPC_WORKLOAD_DEBUG STREQUAL "g")
-  target_compile_options(gemm PRIVATE -g)
+  target_compile_options(${DPC_WORKLOAD} PRIVATE -g)
 elseif(DPC_WORKLOAD_DEBUG STREQUAL "gline")
-  target_compile_options(gemm PRIVATE -gline-tables-only)
+  target_compile_options(${DPC_WORKLOAD} PRIVATE -gline-tables-only)
 endif()
 
-target_link_libraries(gemm PRIVATE ${DPC_LEVEL_ZERO_LOADER_LIBRARY})
-set_target_properties(gemm PROPERTIES
+target_link_libraries(${DPC_WORKLOAD} PRIVATE ${DPC_LEVEL_ZERO_LOADER_LIBRARY})
+set_target_properties(${DPC_WORKLOAD} PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

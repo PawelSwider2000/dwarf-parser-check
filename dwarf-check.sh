@@ -15,7 +15,7 @@ CMAKE_GENERATOR=${CMAKE_GENERATOR:-Ninja}
 GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-intelgt/binutils/addr2line"}
 VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
-VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-PrimaryGEMMKernel}
+VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-}
 READELF_BIN=${READELF_BIN:-readelf}
 ADAPTERS=${ADAPTERS:-rust-gimli}
 CLEAN_RESULTS=false
@@ -283,9 +283,10 @@ adapter_build() {
 }
 
 workload_build() {
-  local workload_dir="$SCRIPT_DIR/data_generation/workloads/$WORKLOAD"
-  if [[ ! -f "$workload_dir/CMakeLists.txt" ]]; then
-    die "workload CMake project not found: $workload_dir"
+  local workload_project_dir="$SCRIPT_DIR/data_generation"
+  local workload_cache_file="$WORKLOAD_BUILD_DIR/CMakeCache.txt"
+  if [[ ! -f "$workload_project_dir/CMakeLists.txt" ]]; then
+    die "workload CMake project not found: $workload_project_dir"
   fi
   if ! command -v icpx >/dev/null 2>&1; then
     die "icpx was not found in PATH; initialize the oneAPI compiler environment first"
@@ -293,8 +294,17 @@ workload_build() {
 
   log "workload build: configuring $WORKLOAD (debug=$DEBUG_MODE, opt=$OPT_LEVEL, device-code=$DEVICE_CODE, device-target=$DEVICE_TARGET)"
   mkdir -p "$ARTIFACT_DIR"
-  cmake -S "$workload_dir" -B "$WORKLOAD_BUILD_DIR" \
+  if [[ -f "$workload_cache_file" ]]; then
+    local configured_source_dir
+    configured_source_dir=$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$workload_cache_file")
+    if [[ -n "$configured_source_dir" && "$configured_source_dir" != "$workload_project_dir" ]]; then
+      log "workload build: removing stale CMake build directory from $configured_source_dir"
+      rm -rf "$WORKLOAD_BUILD_DIR"
+    fi
+  fi
+  cmake -S "$workload_project_dir" -B "$WORKLOAD_BUILD_DIR" \
     -DCMAKE_CXX_COMPILER=icpx \
+    -DDPC_WORKLOAD="$WORKLOAD" \
     -DDPC_WORKLOAD_DEBUG="$DEBUG_MODE" \
     -DDPC_WORKLOAD_OPT="$OPT_LEVEL" \
     -DDPC_WORKLOAD_DEVICE_CODE="$DEVICE_CODE" \
@@ -368,15 +378,38 @@ generate_vtune_reference() {
   fi
 
   mkdir -p "$WORKLOAD_RESULTS_DIR"
-  "$VTUNE_BIN" \
-    -report hotspots \
-    -result-dir "$VTUNE_RESULT_DIR" \
-    -source-object "computing-task=$VTUNE_COMPUTING_TASK" \
-    -group-by address \
-    -format csv \
-    -csv-delimiter comma \
-    -report-width 0 \
-    -report-output "$WORKLOAD_RESULTS_DIR/result.csv"
+  local vtune_report_args=(
+    -report hotspots
+    -result-dir "$VTUNE_RESULT_DIR"
+    -group-by address
+    -format csv
+    -csv-delimiter comma
+    -report-width 0
+  )
+  if [[ -n "$VTUNE_COMPUTING_TASK" ]]; then
+    vtune_report_args+=(
+      -source-object "computing-task=$VTUNE_COMPUTING_TASK"
+      -report-output "$WORKLOAD_RESULTS_DIR/result.csv"
+    )
+    "$VTUNE_BIN" "${vtune_report_args[@]}"
+  else
+    rm -f "$WORKLOAD_RESULTS_DIR"/result_*.csv
+    while IFS=$'\t' read -r kernel_name computing_task; do
+      local kernel_report_args=("${vtune_report_args[@]}")
+      kernel_report_args+=(
+        -source-object "computing-task=$computing_task"
+        -report-output "$WORKLOAD_RESULTS_DIR/result_${kernel_name}.csv"
+      )
+      "$VTUNE_BIN" "${kernel_report_args[@]}"
+    done < <(python3 - "$KERNEL_DEBUG_JSON" <<'PY'
+import json
+import sys
+
+for kernel in json.load(open(sys.argv[1], encoding="utf-8"))["kernels"]:
+    print(f'{kernel["name"]}\t{kernel["demangled_name"].rsplit("::", 1)[-1]}')
+PY
+)
+  fi
 
   python3 "$SCRIPT_DIR/data_generation/extract_addr_srcline.py" \
     "$WORKLOAD_RESULTS_DIR"

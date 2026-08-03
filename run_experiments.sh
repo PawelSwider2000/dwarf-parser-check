@@ -7,7 +7,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DWARF_CHECK=${DWARF_CHECK:-"$SCRIPT_DIR/dwarf-check.sh"}
 
 # ── Experiment matrix ──────────────────────────────────────────────────────────
-WORKLOADS=(gemm)
+WORKLOADS=(gemm control_flow)
 DEBUG_MODES=(g gline)
 OPT_LEVELS=(O0 O1 O2)
 DEVICE_CODE_MODES=(jit aot)

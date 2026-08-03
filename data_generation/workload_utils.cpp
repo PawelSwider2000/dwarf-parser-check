@@ -1,4 +1,4 @@
-#include "gemm_utils.h"
+#include "workload_utils.h"
 
 #include <sycl/ext/oneapi/backend/level_zero.hpp>
 

@@ -1,11 +1,10 @@
 #include <sycl/sycl.hpp>
 
 #include <cmath>
-#include <cstdlib>
 #include <iostream>
 #include <vector>
 
-#include "gemm_utils.h"
+#include "workload.h"
 
 namespace {
 
@@ -36,7 +35,6 @@ float CheckResults(const std::vector<float> &c, float expectedValue) {
   return eps / c.size();
 }
 
-template <typename KernelName>
 bool RunGEMM(sycl::queue &queue, const std::vector<float> &a,
              const std::vector<float> &b, std::vector<float> &c,
              unsigned size, float expectedResult) {
@@ -50,8 +48,8 @@ bool RunGEMM(sycl::queue &queue, const std::vector<float> &a,
       auto bAccessor = bBuffer.get_access<sycl::access::mode::read>(handler);
       auto cAccessor = cBuffer.get_access<sycl::access::mode::write>(handler);
 
-      handler.parallel_for<KernelName>(sycl::range<2>(size, size),
-                                       [=](sycl::id<2> id) {
+      handler.parallel_for<PrimaryGEMMKernel>(sycl::range<2>(size, size),
+                                              [=](sycl::id<2> id) {
         auto aPointer =
             aAccessor.template get_multi_ptr<sycl::access::decorated::no>();
         auto bPointer =
@@ -74,47 +72,22 @@ bool RunGEMM(sycl::queue &queue, const std::vector<float> &a,
   return passed;
 }
 
-template <typename KernelName>
-bool RunGEMMWorkload(sycl::queue &queue, unsigned size,
-                     const char *kernelName) {
+} // namespace
+
+bool Workload(sycl::queue &queue) {
+  const unsigned size = kMatrixSize;
   std::vector<float> a(static_cast<size_t>(size) * size, kAValue);
   std::vector<float> b(static_cast<size_t>(size) * size, kBValue);
   std::vector<float> c(static_cast<size_t>(size) * size, 0.0f);
-  float expectedResult = kAValue * kBValue * size;
+  const float expectedResult = kAValue * kBValue * size;
 
-  std::cout << "[host] launching " << kernelName << " with matrix size "
-            << size << "x" << size << "\n";
-  return RunGEMM<KernelName>(queue, a, b, c, size, expectedResult);
-}
-
-} // namespace
-
-int main(int argc, char *argv[]) {
-  const Config config = ParseCommandLine(argc, argv);
-
-  sycl::queue queue(sycl::gpu_selector_v, sycl::property::queue::in_order{});
-  std::cout << "[host] device: "
-            << queue.get_device().get_info<sycl::info::device::name>() << "\n\n";
-  const std::optional<uint32_t> igaPlatform = GetIgaPlatform(queue.get_device());
-  if (!igaPlatform.has_value()) {
-    std::cerr << "[host] WARNING: unable to map the Level Zero device IP version to IGA\n";
-  }
-
-  InitLevelZeroModuleDebugCollection(config);
   for (int iteration = 0; iteration < kTotalLoops; ++iteration) {
     std::cout << "[host] >>> submitting iteration " << iteration << "\n";
-    const bool ok = RunGEMMWorkload<PrimaryGEMMKernel>(
-        queue, kMatrixSize, "PrimaryGEMMKernel");
-    if (!ok) {
-      std::cerr << "[host] validation failed\n";
-      ShutdownLevelZeroModuleDebugCollection();
-      return EXIT_FAILURE;
+    std::cout << "[host] launching PrimaryGEMMKernel with matrix size "
+              << size << "x" << size << "\n";
+    if (!RunGEMM(queue, a, b, c, size, expectedResult)) {
+      return false;
     }
   }
-  ShutdownLevelZeroModuleDebugCollection();
-
-  if (!WriteCollectedKernelDebugDataJson(config, igaPlatform)) {
-    return EXIT_FAILURE;
-  }
-  return EXIT_SUCCESS;
+  return true;
 }

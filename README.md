@@ -79,6 +79,9 @@ overrides. `BUILD_TYPE`, `CMAKE_GENERATOR`, `GDB_ADDR2LINE`, `VTUNE_BIN`,
 `VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, and `READELF_BIN` are also
 environment-controlled.
 
+By default, analysis emits an address report for every kernel captured in
+`kernel_debug.json`. Set `VTUNE_COMPUTING_TASK` to report only one named kernel.
+
 `--device-code jit` is the default and embeds portable SPIR-V for runtime
 compilation. `--device-code aot` uses `spir64_gen` and OCLOC during the build.
 By default it embeds native images for both `bmg` and `pvc`; select one with
