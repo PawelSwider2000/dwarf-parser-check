@@ -342,6 +342,7 @@ vtune_collect() {
     log "run: removing previous VTune result: $VTUNE_RESULT_DIR"
     rm -rf "$VTUNE_RESULT_DIR"
   fi
+  mkdir -p "$(dirname "$KERNEL_DEBUG_JSON")"
 
   local vtune_args=(
     -collect gpu-hotspots
@@ -481,7 +482,6 @@ run_command() {
   VTUNE_RESULT_DIR=$result_dir
   VTUNE_TARGET_GPU=$target_gpu
   clean_workload_results
-  workload_execute
   vtune_collect
   REMAINING_ARGUMENTS=("$@")
 }
@@ -555,7 +555,6 @@ all_command() {
   done
   clean_workload_results
   workload_build
-  workload_execute
   vtune_collect
   generate_vtune_reference
   ADAPTERS=$adapters REFERENCE_FILE=$VTUNE_REFERENCE_CSV adapter_run

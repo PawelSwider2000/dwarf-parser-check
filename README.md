@@ -15,9 +15,9 @@ analyze the existing result:
 ./dwarf-check analyze
 ```
 
-`build` compiles the workload and `dwarf-parser-check`. `run` executes the
-workload to create `kernel_debug.json`, then collects a `gpu-hotspots` VTune
-result using source-analysis stall sampling. `analyze` uses the existing
+`build` compiles the workload and `dwarf-parser-check`. `run` collects a
+`gpu-hotspots` VTune result using source-analysis stall sampling; the workload
+creates `kernel_debug.json` during collection. `analyze` uses the existing
 manifest and VTune result to generate a direct address-to-source reference and
 run the selected adapters. It never starts VTune collection implicitly.
 
@@ -110,11 +110,13 @@ for VTune. `analyze` requires both an existing VTune result and manifest.
 
 ## Experiment Matrix
 
-`./run_experiments.sh` runs every debug/optimization configuration as both JIT
-and AOT: 12 experiments for the default GEMM workload. Each AOT experiment
-builds a BMG+PVC fat binary, while mode-specific artifact paths keep its build
-and result files separate from the JIT experiment. Set `AOT_TARGETS=bmg` or
-`AOT_TARGETS=pvc` to restrict the AOT target list.
+`./run_experiments.sh` runs the `g` debug mode at every optimization level for
+all four workloads as both JIT and AOT: 24 experiments by default. Each AOT
+experiment builds a BMG+PVC fat binary, while mode-specific artifact paths keep
+its build and result files separate from the JIT experiment. Every experiment
+builds the selected workload, runs it once under VTune, generates the reference,
+and compares the selected adapters. Set `AOT_TARGETS=bmg` or `AOT_TARGETS=pvc`
+to restrict the AOT target list.
 
 Pass `--clean-results` to `dwarf-check` before `run` or `all` to remove the
 selected configuration's result directory before generating new artifacts.

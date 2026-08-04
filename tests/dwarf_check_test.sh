@@ -52,6 +52,10 @@ while [[ $# -gt 0 ]]; do
     printf 'Address,Assembly\n0x0,nop\n' > "$2"
     exit 0
   fi
+  if [[ $1 == -- ]]; then
+    shift
+    exec "$@"
+  fi
   shift
 done
 exit 0
@@ -70,6 +74,25 @@ printf '%s\n' "$@" > "$DPC_TEST_ADAPTER_ARGUMENTS"
 EOF
 chmod +x "$temporary_dir/bin/vtune" "$temporary_dir/bin/python3" \
   "$temporary_dir/build/dwarf-parser-check"
+
+single_run_artifact_dir="$temporary_dir/single-run-artifacts"
+single_run_binary="$single_run_artifact_dir/build/gemm/jit-g-O0/bin/gemm"
+single_run_log="$temporary_dir/workload-runs.log"
+mkdir -p "$(dirname "$single_run_binary")"
+cat > "$single_run_binary" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'run\n' >> "$DPC_TEST_WORKLOAD_LOG"
+mkdir -p "$(dirname "$1")"
+printf '{"kernels": []}\n' > "$1"
+EOF
+chmod +x "$single_run_binary"
+
+DPC_TEST_WORKLOAD_LOG="$single_run_log" \
+VTUNE_BIN="$temporary_dir/bin/vtune" \
+"$DWARF_CHECK" --artifact-dir "$single_run_artifact_dir" run
+
+[[ $(wc -l < "$single_run_log") -eq 1 ]] || fail "run executed the workload outside VTune"
 
 DPC_TEST_ADAPTER_ARGUMENTS="$adapter_arguments" \
 PATH="$temporary_dir/bin:$PATH" \
@@ -104,6 +127,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --workload|--debug|--opt|--device-code|--device-target)
       case "$1" in
+        --workload) workload=$2 ;;
         --debug) debug=$2 ;;
         --opt) opt=$2 ;;
         --device-code) device_code=$2 ;;
@@ -112,8 +136,8 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     all)
-      shift
-      break
+      [[ ${2:-} == --adapters ]] || exit 1
+      shift 3
       ;;
     *)
       exit 1
@@ -126,7 +150,7 @@ if [[ $device_code == aot ]]; then
 else
   configuration="jit-${debug}-${opt}"
 fi
-output_dir="$ARTIFACT_DIR/results/gemm/$configuration"
+output_dir="$ARTIFACT_DIR/results/$workload/$configuration"
 mkdir -p "$output_dir"
 cat > "$output_dir/adapter_rust-gimli_vtune_comparison.json" <<'JSON'
 {"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"skipped","skip_reason":"VTune reference contains no source locations","mismatch_count":0,"summary":{"compared_offsets":0,"matches":0,"file_mismatches":0,"line_mismatches":0,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
@@ -139,13 +163,13 @@ ARTIFACT_DIR="$matrix_artifact_dir" \
 DWARF_CHECK="$fake_dwarf_check" \
 "$PROJECT_DIR/run_experiments.sh" --clean-results
 
-[[ $(wc -l < "$matrix_clean_log") -eq 12 ]] || fail "cleanup option was not forwarded to every experiment"
+[[ $(wc -l < "$matrix_clean_log") -eq 24 ]] || fail "cleanup option was not forwarded to every experiment"
 python3 - "$matrix_artifact_dir/experiment_summary.json" <<'PY'
 import json
 import sys
 
 summary = json.load(open(sys.argv[1]))
-if summary["summary"] != {"total": 12, "passed": 0, "skipped": 12, "failed": 0}:
+if summary["summary"] != {"total": 24, "passed": 0, "skipped": 24, "failed": 0}:
     raise SystemExit("incorrect experiment summary")
 if any(experiment["status"] != "SKIP" for experiment in summary["experiments"]):
     raise SystemExit("expected every experiment to be skipped")
