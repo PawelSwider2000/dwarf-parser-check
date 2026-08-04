@@ -163,13 +163,13 @@ ARTIFACT_DIR="$matrix_artifact_dir" \
 DWARF_CHECK="$fake_dwarf_check" \
 "$PROJECT_DIR/run_experiments.sh" --clean-results
 
-[[ $(wc -l < "$matrix_clean_log") -eq 24 ]] || fail "cleanup option was not forwarded to every experiment"
+[[ $(wc -l < "$matrix_clean_log") -eq 30 ]] || fail "cleanup option was not forwarded to every experiment"
 python3 - "$matrix_artifact_dir/experiment_summary.json" <<'PY'
 import json
 import sys
 
 summary = json.load(open(sys.argv[1]))
-if summary["summary"] != {"total": 24, "passed": 0, "skipped": 24, "failed": 0}:
+if summary["summary"] != {"total": 30, "passed": 0, "skipped": 30, "failed": 0}:
     raise SystemExit("incorrect experiment summary")
 if any(experiment["status"] != "SKIP" for experiment in summary["experiments"]):
     raise SystemExit("expected every experiment to be skipped")

@@ -37,20 +37,13 @@ RESULTS_DIR = _parse_args()
 VTUNE_DB = RESULTS_DIR / "vtune_results/sqlite-db/dicer.db"
 
 
-def find_zebin(results_dir: Path, explicit: Path | None = None) -> Path:
-    """Find the .zebin file under results_dir/vtune_results/archive/binaries/."""
-    if explicit is not None:
-        return explicit
+def find_zebins(results_dir: Path) -> list[Path]:
+    """Find the .zebin files under results_dir/vtune_results/archive/binaries/."""
     search_root = results_dir / "vtune_results" / "archive" / "binaries"
     zebins = sorted(p for p in search_root.rglob("*.zebin") if p.is_file())
-    data_zebins = [p for p in zebins if "data.0" in p.parts]
-    if len(data_zebins) == 1:
-        return data_zebins[0]
-    if len(zebins) != 1:
-        raise ValueError(
-            f"expected exactly one .zebin under {search_root}, found {len(zebins)}"
-        )
-    return zebins[0]
+    if not zebins:
+        raise ValueError(f"no .zebin files found under {search_root}")
+    return zebins
 
 
 def run_ocloc_disasm(zebin: Path, ocloc: str = "ocloc") -> Path:
@@ -209,44 +202,47 @@ def extract_dwarf(
 # ---------------------------------------------------------------------------
 # 3. VTune reference CSV (per kernel, same format as correlate_vtune_report output)
 # ---------------------------------------------------------------------------
-def correlate_vtune_locations(ref_csv: Path) -> dict[str, dict[int, tuple[int, str]]]:
+def correlate_vtune_locations(
+    ref_csv: Path, zebins: list[Path]
+) -> dict[str, dict[int, tuple[int, str]]]:
     """Return DWARF-correlated {(kernel, display address): (line, file)} locations."""
     correlator = Path(__file__).with_name("correlate_vtune_report.py")
     with tempfile.TemporaryDirectory(prefix="dwarf-parser-check-correlation-") as temp_dir:
         temp_path = Path(temp_dir)
-        manifest_path = temp_path / "vtune_manifest.json"
-        try:
-            subprocess.run(
-                [
-                    sys.executable,
-                    str(correlator),
-                    "--input", str(ref_csv),
-                    "--output", str(temp_path / "vtune_reference.csv"),
-                    "--result-dir", str(RESULTS_DIR / "vtune_results"),
-                    "--manifest-output", str(manifest_path),
-                ],
-                check=True,
-            )
-        except subprocess.CalledProcessError as error:
-            print(f"DWARF correlation failed: {error}; no reference locations available",
-                  file=sys.stderr)
-            return {}
-
-        manifest = json.loads(manifest_path.read_text())
         locations: dict[str, dict[int, tuple[int, str]]] = {}
-        for kernel in manifest["kernels"]:
-            kernel_locations: dict[int, tuple[int, str]] = {}
-            with open(kernel["reference_csv"], newline="") as reference_stream:
-                for row in csv.DictReader(reference_stream):
-                    try:
-                        address = int(row["Address"], 16)
-                        line = int(row["Source Line"])
-                    except (KeyError, TypeError, ValueError):
-                        continue
-                    source_file = row.get("Source File", "")
-                    if source_file:
-                        kernel_locations[address] = (line, os.path.normpath(source_file))
-            locations[kernel["name"]] = kernel_locations
+        for index, zebin in enumerate(zebins):
+            manifest_path = temp_path / f"vtune_manifest_{index}.json"
+            try:
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(correlator),
+                        "--input", str(ref_csv),
+                        "--output", str(temp_path / f"vtune_reference_{index}.csv"),
+                        "--result-dir", str(RESULTS_DIR / "vtune_results"),
+                        "--manifest-output", str(manifest_path),
+                        "--zebin", str(zebin),
+                    ],
+                    check=True,
+                )
+            except subprocess.CalledProcessError as error:
+                print(f"DWARF correlation failed for {zebin}: {error}", file=sys.stderr)
+                continue
+
+            manifest = json.loads(manifest_path.read_text())
+            for kernel in manifest["kernels"]:
+                kernel_locations: dict[int, tuple[int, str]] = {}
+                with open(kernel["reference_csv"], newline="") as reference_stream:
+                    for row in csv.DictReader(reference_stream):
+                        try:
+                            address = int(row["Address"], 16)
+                            line = int(row["Source Line"])
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        source_file = row.get("Source File", "")
+                        if source_file:
+                            kernel_locations[address] = (line, os.path.normpath(source_file))
+                locations[kernel["name"]] = kernel_locations
     return locations
 
 
@@ -394,8 +390,9 @@ def main() -> None:
 
     # VTune samples are mapped through the raw DWARF line table because VTune's
     # SQLite source-file field can pair an inline-header line with the outer TU.
-    zebin = find_zebin(RESULTS_DIR)
-    correlated_locations = correlate_vtune_locations(ref_csv)
+    zebins = find_zebins(RESULTS_DIR)
+    zebin = zebins[0]
+    correlated_locations = correlate_vtune_locations(ref_csv, zebins)
     manifest_kernels = generate_vtune_reference(
         ref_csv, RESULTS_DIR, correlated_locations
     )

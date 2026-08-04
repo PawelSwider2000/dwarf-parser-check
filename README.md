@@ -111,7 +111,7 @@ for VTune. `analyze` requires both an existing VTune result and manifest.
 ## Experiment Matrix
 
 `./run_experiments.sh` runs the `g` debug mode at every optimization level for
-all four workloads as both JIT and AOT: 24 experiments by default. Each AOT
+all five workloads as both JIT and AOT: 30 experiments by default. Each AOT
 experiment builds a BMG+PVC fat binary, while mode-specific artifact paths keep
 its build and result files separate from the JIT experiment. Every experiment
 builds the selected workload, runs it once under VTune, generates the reference,

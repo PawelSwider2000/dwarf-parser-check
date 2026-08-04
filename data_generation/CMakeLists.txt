@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(DPC_WORKLOAD "gemm" CACHE STRING "Workload to build")
-set_property(CACHE DPC_WORKLOAD PROPERTY STRINGS gemm control_flow multifile inline_chain)
+set_property(CACHE DPC_WORKLOAD PROPERTY STRINGS
+  gemm control_flow multifile inline_chain multifile_inline_chain
+)
 set(DPC_WORKLOAD_DEBUG "g" CACHE STRING "Device debug information: g, gline, or none")
 set_property(CACHE DPC_WORKLOAD_DEBUG PROPERTY STRINGS g gline none)
 set(DPC_WORKLOAD_OPT "O0" CACHE STRING "Optimization level: O0, O1, or O2")
@@ -29,6 +31,11 @@ elseif(DPC_WORKLOAD STREQUAL "multifile")
   )
 elseif(DPC_WORKLOAD STREQUAL "inline_chain")
   set(DPC_WORKLOAD_SOURCES workloads/inline_chain/inline_chain_workload.cpp)
+elseif(DPC_WORKLOAD STREQUAL "multifile_inline_chain")
+  set(DPC_WORKLOAD_SOURCES
+    workloads/multifile_inline_chain/multifile_inline_chain_workload.cpp
+    workloads/multifile_inline_chain/multifile_inline_chain_helpers.cpp
+  )
 else()
   message(FATAL_ERROR "DPC_WORKLOAD must name a supported workload")
 endif()
