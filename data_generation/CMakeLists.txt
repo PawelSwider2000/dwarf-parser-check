@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(DPC_WORKLOAD "gemm" CACHE STRING "Workload to build")
-set_property(CACHE DPC_WORKLOAD PROPERTY STRINGS gemm control_flow)
+set_property(CACHE DPC_WORKLOAD PROPERTY STRINGS gemm control_flow multifile inline_chain)
 set(DPC_WORKLOAD_DEBUG "g" CACHE STRING "Device debug information: g, gline, or none")
 set_property(CACHE DPC_WORKLOAD_DEBUG PROPERTY STRINGS g gline none)
 set(DPC_WORKLOAD_OPT "O0" CACHE STRING "Optimization level: O0, O1, or O2")
@@ -18,9 +18,16 @@ set(DPC_WORKLOAD_AOT_TARGET "bmg,pvc" CACHE STRING "Comma-separated Intel GPU AO
 set_property(CACHE DPC_WORKLOAD_AOT_TARGET PROPERTY STRINGS bmg,pvc bmg pvc)
 
 if(DPC_WORKLOAD STREQUAL "gemm")
-  set(DPC_WORKLOAD_SOURCE workloads/gemm/gemm_workload.cpp)
+  set(DPC_WORKLOAD_SOURCES workloads/gemm/gemm_workload.cpp)
 elseif(DPC_WORKLOAD STREQUAL "control_flow")
-  set(DPC_WORKLOAD_SOURCE workloads/control_flow/control_flow_workload.cpp)
+  set(DPC_WORKLOAD_SOURCES workloads/control_flow/control_flow_workload.cpp)
+elseif(DPC_WORKLOAD STREQUAL "multifile")
+  set(DPC_WORKLOAD_SOURCES
+    workloads/multifile/multifile_workload.cpp
+    workloads/multifile/multifile_helpers.cpp
+  )
+elseif(DPC_WORKLOAD STREQUAL "inline_chain")
+  set(DPC_WORKLOAD_SOURCES workloads/inline_chain/inline_chain_workload.cpp)
 else()
   message(FATAL_ERROR "DPC_WORKLOAD must name a supported workload")
 endif()
@@ -52,7 +59,7 @@ find_library(DPC_LEVEL_ZERO_LOADER_LIBRARY NAMES ze_loader REQUIRED)
 
 add_executable(${DPC_WORKLOAD}
   main.cpp
-  ${DPC_WORKLOAD_SOURCE}
+  ${DPC_WORKLOAD_SOURCES}
   workload_utils.cpp
   kernel_debug_info.cpp
 )
