@@ -25,6 +25,7 @@ elseif(DPC_WORKLOAD STREQUAL "multifile")
   set(DPC_WORKLOAD_SOURCES
     workloads/multifile/multifile_workload.cpp
     workloads/multifile/multifile_helpers.cpp
+    workloads/multifile/multifile_extra.cpp
   )
 elseif(DPC_WORKLOAD STREQUAL "inline_chain")
   set(DPC_WORKLOAD_SOURCES workloads/inline_chain/inline_chain_workload.cpp)

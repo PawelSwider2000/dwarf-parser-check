@@ -74,6 +74,26 @@ bool RunCenteredSquareKernel(sycl::queue &queue, const std::vector<int> &input,
   return ValidateResults(input, output, CenteredSquare, "CenteredSquareKernel");
 }
 
+bool RunHeaderImplementedKernel(sycl::queue &queue, const std::vector<int> &input,
+                                std::vector<int> &output) {
+  try {
+    {
+      sycl::buffer<int, 1> inputBuffer(input.data(), input.size());
+      sycl::buffer<int, 1> outputBuffer(output.data(), output.size());
+      queue.submit([&](sycl::handler &handler) {
+        auto inputAccessor = inputBuffer.get_access<sycl::access::mode::read>(handler);
+        auto outputAccessor = outputBuffer.get_access<sycl::access::mode::write>(handler);
+        SubmitHeaderImplementedKernel(handler, inputAccessor, outputAccessor, input.size());
+      });
+      queue.wait_and_throw();
+    }
+  } catch (const sycl::exception &error) {
+    std::cerr << "SYCL Exception: " << error.what() << "\n";
+    return false;
+  }
+  return ValidateResults(input, output, HeaderKernelExpected, "HeaderImplementedKernel");
+}
+
 } // namespace
 
 bool Workload(sycl::queue &queue) {
@@ -86,7 +106,8 @@ bool Workload(sycl::queue &queue) {
   for (int iteration = 0; iteration < kTotalLoops; ++iteration) {
     std::cout << "[host] >>> submitting iteration " << iteration << "\n";
     if (!RunScaleAndBiasKernel(queue, input, output) ||
-        !RunCenteredSquareKernel(queue, input, output)) {
+        !RunCenteredSquareKernel(queue, input, output) ||
+        !RunHeaderImplementedKernel(queue, input, output)) {
       return false;
     }
   }
