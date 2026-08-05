@@ -147,40 +147,15 @@ reference, and report output directory:
 
 ```bash
 ./build/dwarf-parser-check \
-  --kernel-debug-json artifacts/results/gemm/jit-g-O0/kernel_debug.json \
-  --adapters all \
-  --output-dir artifacts/results/gemm/jit-g-O0 \
-  --reference artifacts/results/gemm/jit-g-O0/vtune_reference.csv
+	--kernel-debug-json artifacts/results/gemm/jit-g-O0/kernel_debug.json \
+	--adapters all \
+	--output-dir artifacts/results/gemm/jit-g-O0 \
+	--reference artifacts/results/gemm/jit-g-O0/vtune_reference.csv
 ```
 
 The manifest contains each kernel's demangled display name, mangled symbol
 selector, ELF/DWARF path, runtime metadata, and matching VTune IP list.
 Resolved addresses are reported as offsets from the beginning of each kernel.
-
-### Direct IP Resolution
-
-Resolve a plain file of VTune display IPs to source locations without running
-the adapter comparison workflow:
-
-```bash
-./build/dwarf-parser-check \
-  --ip-list artifacts/results/gemm/jit-g-O2/vtune_ips__ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.txt \
-  --dwarf-file artifacts/results/gemm/jit-g-O2/_ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE.dwarf \
-  --kernel-symbol _ZTSN12_GLOBAL__N_117PrimaryGEMMKernelE \
-  --kernel-base 0x8000ffbb0900 \
-  --kernel-size 1024 \
-  --output artifacts/results/gemm/jit-g-O2/resolved_ips.csv \
-  --unresolved-output artifacts/results/gemm/jit-g-O2/unresolved_ips.csv
-```
-
-`--ip-list` accepts one hexadecimal address per line and canonicalizes Intel
-GPU 48-bit addresses before subtracting `--kernel-base`. The resolved CSV
-contains the original IP, normalized kernel offset, and source location. The
-unresolved CSV records every address outside the kernel or without a source
-line. `extract_addr_srcline.py` writes a de-duplicated
-`vtune_ips_<kernel>.txt` list beside each generated VTune reference CSV; use
-the matching `section_file_offset` in `vtune_manifest.json` as `--kernel-base`
-and the matching kernel metadata as `--kernel-size`.
 
 ## Tests
 

@@ -51,8 +51,6 @@ class ResolverEngine {
   AdapterRegistry registry_;
 };
 
-AdapterRegistry make_default_registry();
-
 AdapterRegistry make_registry(std::vector<DwarfAdapterPtr> adapters);
 
 std::vector<std::string> compiled_adapter_names();

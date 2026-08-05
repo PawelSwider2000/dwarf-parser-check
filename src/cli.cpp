@@ -26,24 +26,6 @@ std::string join_adapter_names(const std::vector<std::string>& names) {
   return stream.str();
 }
 
-std::optional<std::uint64_t> parse_uint64(std::string_view value) {
-  int base = 10;
-  if (value.size() > 2U && value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) {
-    value.remove_prefix(2U);
-    base = 16;
-  }
-  if (value.empty()) {
-    return std::nullopt;
-  }
-
-  std::uint64_t result = 0;
-  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), result, base);
-  if (error != std::errc() || end != value.data() + value.size()) {
-    return std::nullopt;
-  }
-  return result;
-}
-
 void write_csv_field(std::string_view value, std::ostream& output) {
   if (value.find_first_of(",\"\r\n") == std::string_view::npos) {
     output << value;
@@ -259,109 +241,8 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
-    if (argument == "--ip-list") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.ip_list = std::filesystem::path(*value);
-      continue;
-    }
-
-    if (argument == "--dwarf-file") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.dwarf_file = *value;
-      continue;
-    }
-
-    if (argument == "--kernel-name") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.kernel_name = *value;
-      continue;
-    }
-
-    if (argument == "--kernel-symbol") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.kernel_symbol = *value;
-      continue;
-    }
-
-    if (argument == "--kernel-base" || argument == "--kernel-size") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      const auto parsed = parse_uint64(*value);
-      if (!parsed.has_value()) {
-        error_stream << "invalid unsigned integer for " << argument << ": " << *value << '\n';
-        return std::nullopt;
-      }
-      if (argument == "--kernel-base") {
-        options.kernel_base = *parsed;
-      } else {
-        options.kernel_size = *parsed;
-      }
-      continue;
-    }
-
-    if (argument == "--resolver") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.resolver_selection = std::string(*value);
-      continue;
-    }
-
-    if (argument == "--output") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.resolved_output = *value;
-      continue;
-    }
-
-    if (argument == "--unresolved-output") {
-      const auto value = require_value(argument);
-      if (!value.has_value()) {
-        return std::nullopt;
-      }
-      options.unresolved_output = *value;
-      continue;
-    }
-
     error_stream << "unknown argument: " << argument << '\n';
     return std::nullopt;
-  }
-
-  if (options.ip_list.has_value()) {
-    if (!options.kernel_debug_json.empty() || !options.output_dir.empty() ||
-        options.reference_file.has_value() || options.vtune_manifest.has_value() ||
-        options.adapter_selection != "all") {
-      error_stream << "--ip-list cannot be combined with manifest-mode options\n";
-      return std::nullopt;
-    }
-    if (options.dwarf_file.empty() || options.kernel_symbol.empty() ||
-        !options.kernel_base.has_value() || !options.kernel_size.has_value() ||
-        options.resolved_output.empty() || options.unresolved_output.empty()) {
-      error_stream << "--ip-list requires --dwarf-file, --kernel-symbol, --kernel-base, --kernel-size, "
-                   << "--output, and --unresolved-output\n";
-      return std::nullopt;
-    }
-    if (options.kernel_name.empty()) {
-      options.kernel_name = options.kernel_symbol;
-    }
-    return options;
   }
 
   if (options.kernel_debug_json.empty()) {
@@ -381,25 +262,12 @@ void print_usage(std::ostream& output, const char* program_name) {
   const std::string adapter_list = adapters.empty() ? "(none)" : join_adapter_names(adapters);
 
   output << "Usage: " << program_name << " --kernel-debug-json <PATH> [options]\n"
-      << "   or: " << program_name << " --ip-list <PATH> --dwarf-file <PATH> --kernel-symbol <NAME> "
-      << "--kernel-base <ADDRESS> --kernel-size <BYTES> --output <PATH> --unresolved-output <PATH> [options]\n"
-         << "\n"
-      << "Manifest-mode options:\n"
+      << "\n"
+      << "Options:\n"
         << "  --kernel-debug-json <PATH>  Metadata JSON written by simple_sycl_vtune\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional reference or VTune source-locations JSON\n"
          << "  --output-dir <PATH>   Write one CSV and comparison JSON per selected adapter\n"
-      << "\n"
-      << "IP-list mode options:\n"
-      << "  --ip-list <PATH>            One hexadecimal IP per line\n"
-      << "  --dwarf-file <PATH>         Kernel ELF/DWARF file\n"
-      << "  --kernel-symbol <NAME>      Mangled kernel symbol\n"
-      << "  --kernel-name <NAME>        Optional display name (defaults to symbol)\n"
-      << "  --kernel-base <ADDRESS>     Runtime kernel base address\n"
-      << "  --kernel-size <BYTES>       Runtime kernel size in bytes\n"
-      << "  --resolver <NAME>           One resolver backend (default: rust-gimli)\n"
-      << "  --output <PATH>             Write resolved IP mappings as CSV\n"
-      << "  --unresolved-output <PATH>  Write unmapped or invalid IPs as CSV\n"
          << "  --help, -h            Show this help message\n";
 }
 

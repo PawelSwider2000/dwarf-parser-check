@@ -18,15 +18,6 @@ struct CliOptions {
   std::filesystem::path output_dir;
   std::string adapter_selection = "all";
 
-  std::optional<std::filesystem::path> ip_list;
-  std::filesystem::path dwarf_file;
-  std::string kernel_name;
-  std::string kernel_symbol;
-  std::optional<std::uint64_t> kernel_base;
-  std::optional<std::uint64_t> kernel_size;
-  std::string resolver_selection = "rust-gimli";
-  std::filesystem::path resolved_output;
-  std::filesystem::path unresolved_output;
   bool show_help = false;
 };
 

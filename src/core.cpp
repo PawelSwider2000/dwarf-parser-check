@@ -192,10 +192,6 @@ std::vector<DwarfAdapterPtr> create_adapters(std::string_view selection) {
   return adapters;
 }
 
-AdapterRegistry make_default_registry() {
-  return make_registry(create_adapters("all"));
-}
-
 ResolveReport resolve_request(
     const ResolverEngine& engine,
     const ResolveRequest& request) {

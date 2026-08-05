@@ -77,12 +77,12 @@ TEST(CliTest, ParsesKernelDebugJsonRequest) {
   EXPECT_EQ(cli->kernel_debug_json, "kernel_debug.json");
 }
 
-TEST(CliTest, RejectsRemovedIpSelectionOptions) {
+TEST(CliTest, RejectsRemovedDirectIpOption) {
   std::vector<std::string> args = {
       "dwarf-parser-check",
       "--kernel-debug-json",
       "kernel_debug.json",
-      "--ip",
+      "--ip-list",
       "0xffff8000fff86d00",
   };
   std::vector<char*> argv;
@@ -95,7 +95,7 @@ TEST(CliTest, RejectsRemovedIpSelectionOptions) {
   const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
 
   EXPECT_FALSE(cli.has_value());
-  EXPECT_NE(errors.str().find("unknown argument: --ip"), std::string::npos);
+  EXPECT_NE(errors.str().find("unknown argument: --ip-list"), std::string::npos);
 }
 
 TEST(CliTest, ParsesOutputDirectory) {
@@ -116,37 +116,6 @@ TEST(CliTest, ParsesOutputDirectory) {
 
   ASSERT_TRUE(cli.has_value()) << errors.str();
   EXPECT_EQ(cli->output_dir, "results");
-}
-
-TEST(CliTest, ParsesDirectIpResolutionRequest) {
-  std::vector<std::string> args = {
-      "dwarf-parser-check",
-      "--ip-list", "ips.txt",
-      "--dwarf-file", "kernel.dwarf",
-      "--kernel-symbol", "_ZKernel",
-      "--kernel-base", "0xffff8000fff80000",
-      "--kernel-size", "0x1000",
-      "--resolver", "rust-gimli",
-      "--output", "resolved.csv",
-      "--unresolved-output", "unresolved.csv",
-  };
-  std::vector<char*> argv;
-  argv.reserve(args.size());
-  for (std::string& arg : args) {
-    argv.push_back(arg.data());
-  }
-
-  std::ostringstream errors;
-  const auto cli = parse_cli(static_cast<int>(argv.size()), argv.data(), errors);
-
-  ASSERT_TRUE(cli.has_value()) << errors.str();
-  ASSERT_TRUE(cli->ip_list.has_value());
-  EXPECT_EQ(*cli->ip_list, "ips.txt");
-  EXPECT_EQ(cli->kernel_name, "_ZKernel");
-  EXPECT_EQ(*cli->kernel_base, 0xffff8000fff80000ULL);
-  EXPECT_EQ(*cli->kernel_size, 0x1000U);
-  EXPECT_EQ(cli->resolved_output, "resolved.csv");
-  EXPECT_EQ(cli->unresolved_output, "unresolved.csv");
 }
 
 TEST(CliTest, WritesResolvedLocationsAsCsv) {
@@ -239,26 +208,7 @@ TEST(CompareTest, MarksEmptyVtuneReferenceAsSkipped) {
   std::filesystem::remove(reference_path);
 }
 
-TEST(CliTest, RejectsIncompleteDirectIpResolutionRequest) {
-  std::vector<std::string> args = {
-      "dwarf-parser-check",
-  "--ip-list",
-  "ips.txt",
-      "--dwarf-file",
-      sample_dwarf_path().string(),
-  };
-  std::vector<char*> argv;
-  argv.reserve(args.size());
-  for (std::string& arg : args) {
-    argv.push_back(arg.data());
-  }
-
-  std::ostringstream errors;
-  EXPECT_FALSE(parse_cli(static_cast<int>(argv.size()), argv.data(), errors).has_value());
-  EXPECT_NE(errors.str().find("--ip-list requires"), std::string::npos);
-}
-
-TEST(IpResolutionTest, NormalizesAndResolvesGpuAddresses) {
+TEST(IpResolutionTest, NormalizesGpuAddresses) {
   const std::vector<InputIp> inputs = {
       {0x00008000fff80020ULL, 1U},
       {0xffff8000fff80030ULL, 2U},
@@ -276,23 +226,6 @@ TEST(IpResolutionTest, NormalizesAndResolvesGpuAddresses) {
   EXPECT_FALSE(normalized[2].kernel_offset.has_value());
   ASSERT_TRUE(normalized[3].kernel_offset.has_value());
   EXPECT_EQ(*normalized[3].kernel_offset, 0x40U);
-
-  KernelResolution resolution;
-  SourceLocation location;
-  location.location.ip = 0x20U;
-  location.location.file = "source.cpp";
-  location.location.line = 42U;
-  resolution.locations.push_back(location);
-
-  const std::vector<IpResolutionResult> results =
-      resolve_normalized_ips(normalized, &resolution);
-  ASSERT_EQ(results.size(), 4U);
-  EXPECT_EQ(results[0].status, IpResolutionStatus::kResolved);
-  ASSERT_TRUE(results[0].location.has_value());
-  EXPECT_EQ(results[0].location->location.line, 42U);
-  EXPECT_EQ(results[1].status, IpResolutionStatus::kResolved);
-  EXPECT_EQ(results[2].status, IpResolutionStatus::kOutsideKernel);
-  EXPECT_EQ(results[3].status, IpResolutionStatus::kResolved);
 }
 
 TEST(IpResolutionTest, NormalizesVtuneDisplayAddressesUsingSectionFileOffset) {
