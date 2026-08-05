@@ -3,6 +3,7 @@
 import argparse
 import bisect
 import csv
+import itertools
 import json
 import os
 import re
@@ -205,8 +206,12 @@ def correlate(
         input_csv.open(encoding="utf-8", errors="replace", newline="") as input_stream,
         output_csv.open("w", encoding="utf-8", newline="") as output_stream,
     ):
-        reader = csv.DictReader(input_stream)
-        if reader.fieldnames is None or "Address" not in reader.fieldnames:
+        header = next(
+            (line for line in input_stream if "Address" in next(csv.reader([line]), [])),
+            None,
+        )
+        reader = csv.DictReader(itertools.chain([header], input_stream)) if header else None
+        if reader is None or reader.fieldnames is None or "Address" not in reader.fieldnames:
             raise ValueError(f"VTune report has no Address column: {input_csv}")
 
         remaining_fields = [
@@ -220,7 +225,12 @@ def correlate(
             source_file = ""
             source_line = ""
             assembly = row.get("Assembly", "")
-            if assembly and not assembly.startswith("Block ") and assembly != "illegal":
+            is_instruction = (
+                assembly and not assembly.startswith("Block ") and assembly != "illegal"
+                if "Assembly" in reader.fieldnames
+                else bool(row.get("Source Line", ""))
+            )
+            if is_instruction:
                 instruction_count += 1
                 dwarf_address = int(row["Address"], 16) + text_address
                 index = bisect.bisect_right(line_addresses, dwarf_address) - 1
@@ -238,7 +248,7 @@ def correlate(
 
 
 def kernel_input_csv(input_csv: Path, kernel_name: str) -> Path:
-    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel_name)[:80]
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel_name)
     candidate = input_csv.with_name(
         f"{input_csv.stem}_{safe_name}{input_csv.suffix}"
     )
@@ -288,6 +298,8 @@ def main() -> int:
             # ── Multi-section: one output CSV per kernel ────────────────────
             cu_blocks = split_by_cu(arguments.readelf, zebin)
             cu_dirs = compilation_directories(arguments.readelf, zebin)
+            fallback_comp_dir = next((directory for directory in cu_dirs
+                                      if directory is not None), None)
 
             out_dir = arguments.output.parent
             out_stem = arguments.output.stem
@@ -302,7 +314,7 @@ def main() -> int:
                 cu_block = cu_blocks[i] if i < len(cu_blocks) else None
                 comp_dir = cu_dirs[i] if i < len(cu_dirs) else None
 
-                if cu_block is None or comp_dir is None:
+                if cu_block is None or (comp_dir is None and fallback_comp_dir is None):
                     print(
                         f"correlate_vtune_report: [{kernel_name}] skipped: "
                         f"no CU data (cu_block={cu_block is not None}, "
@@ -313,7 +325,7 @@ def main() -> int:
 
                 try:
                     line_addresses, line_locations = decoded_lines_from_block(
-                        cu_block, comp_dir, kernel_name
+                        cu_block, comp_dir or fallback_comp_dir, kernel_name
                     )
                     mapped, instruction_count = correlate(
                         kernel_input_csv(arguments.input, kernel_name), kernel_csv,

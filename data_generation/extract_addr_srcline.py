@@ -3,6 +3,7 @@
 
 Outputs two CSVs for comparison:
   - vtune_addr_srcline.csv   (from VTune DB, one row per unique address)
+    - vtune_addr_srcline_<kernel>.csv (from VTune DB, grouped per GPU kernel)
   - dwarf_addr_srcline.csv   (from raw .debug_line via pyelftools)
     - vtune_ips_<kernel>.txt   (raw VTune display IPs, one per line)
 
@@ -95,6 +96,33 @@ def extract_vtune_all() -> tuple[list[tuple[int, int | None, int, str]], dict[in
             rva_map[addr] = rva
 
     return results, rva_map
+
+
+def extract_vtune_by_kernel() -> dict[str, list[tuple[int, int | None, int, str]]]:
+    """Return VTune location rows grouped by GPU kernel name."""
+    conn = sqlite3.connect(VTUNE_DB)
+    rows = conn.execute("""
+        SELECT ms.gpu_kernel_name, cl.display_address, cl.nested_level, sl.line, sf.path
+        FROM dd_code_location cl
+        LEFT JOIN dd_module_segment ms ON cl.mod_seg = ms.rowid
+        LEFT JOIN dd_source_location sl ON cl.src_loc = sl.rowid
+        LEFT JOIN dd_source_file sf ON sl.src_file = sf.rowid
+        ORDER BY ms.gpu_kernel_name,
+                 cl.display_address,
+                 cl.nested_level IS NOT NULL,
+                 cl.nested_level
+    """).fetchall()
+    conn.close()
+
+    by_kernel: dict[str, list[tuple[int, int | None, int, str]]] = {}
+    for kernel, address, nested_level, line, source_file in rows:
+        if address is None:
+            continue
+        by_kernel.setdefault(kernel or "unknown", []).append(
+            (address, nested_level, line or 0,
+             os.path.normpath(source_file) if source_file else "")
+        )
+    return by_kernel
 
 
 def write_vtune_all_csv(
@@ -403,6 +431,13 @@ def main() -> None:
     # VTune DB — all resolution levels per address
     vtune_all_rows, rva_map = extract_vtune_all()
     write_vtune_all_csv(RESULTS_DIR / "vtune_addr_srcline.csv", vtune_all_rows, asm_map)
+    for kernel_name, kernel_rows in extract_vtune_by_kernel().items():
+        safe_kernel_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel_name)
+        write_vtune_all_csv(
+            RESULTS_DIR / f"vtune_addr_srcline_{safe_kernel_name}.csv",
+            kernel_rows,
+            asm_map,
+        )
 
     # Addresses in result.csv but absent from VTune DB (e.g. never-sampled jumps)
     vtune_addrs = {r[0] for r in vtune_all_rows}

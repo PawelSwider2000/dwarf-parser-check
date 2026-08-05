@@ -383,6 +383,8 @@ generate_vtune_reference() {
     -report hotspots
     -result-dir "$VTUNE_RESULT_DIR"
     -group-by address
+    -column Address
+    -column "Source Line"
     -format csv
     -csv-delimiter comma
     -report-width 0
@@ -407,7 +409,10 @@ import json
 import sys
 
 for kernel in json.load(open(sys.argv[1], encoding="utf-8"))["kernels"]:
-    print(f'{kernel["name"]}\t{kernel["demangled_name"].rsplit("::", 1)[-1]}')
+  demangled_name = kernel["demangled_name"]
+  function_name, delimiter, template_arguments = demangled_name.partition("<")
+  computing_task = function_name.rsplit("::", 1)[-1] + delimiter + template_arguments
+  print(f'{kernel["name"]}\t{computing_task}')
 PY
 )
   fi
