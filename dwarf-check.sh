@@ -16,7 +16,8 @@ GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-
 VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-}
-READELF_BIN=${READELF_BIN:-readelf}
+UNITRACE_BIN=${UNITRACE_BIN:-unitrace}
+TOOL=${TOOL:-both}
 ADAPTERS=${ADAPTERS:-rust-gimli}
 CLEAN_RESULTS=false
 
@@ -26,6 +27,7 @@ workload_results_dir_from_environment=${WORKLOAD_RESULTS_DIR+x}
 kernel_debug_json_from_environment=${KERNEL_DEBUG_JSON+x}
 vtune_result_dir_from_environment=${VTUNE_RESULT_DIR+x}
 vtune_reference_csv_from_environment=${VTUNE_REFERENCE_CSV+x}
+unitrace_result_dir_from_environment=${UNITRACE_RESULT_DIR+x}
 WORKLOAD_CONFIGURATION=${WORKLOAD_CONFIGURATION:-}
 WORKLOAD_BUILD_DIR=${WORKLOAD_BUILD_DIR:-}
 WORKLOAD_RESULTS_DIR=${WORKLOAD_RESULTS_DIR:-}
@@ -35,6 +37,8 @@ KERNEL_DEBUG_JSON=${KERNEL_DEBUG_JSON:-}
 DEFAULT_VTUNE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/vtune_results"
 VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-}
 VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-}
+UNITRACE_RESULT_DIR=${UNITRACE_RESULT_DIR:-}
+UNITRACE_SHADER_DUMP_DIR=${UNITRACE_SHADER_DUMP_DIR:-}
 
 log() {
   printf '[dwarf-check] %s\n' "$*"
@@ -57,6 +61,7 @@ Global options must appear before the first command:
   --device-target LIST  Comma-separated AOT targets: bmg, pvc (default: bmg,pvc)
   --artifact-dir PATH   Workload artifact root (default: artifacts)
   --build-dir PATH      dwarf-parser-check CMake build directory (default: build)
+  --tool NAME           Collector to use: vtune, unitrace, or both (default: both)
   --clean-results       Remove the selected results directory before run or all
   --help, -h            Show this help text
 
@@ -66,9 +71,9 @@ Commands:
                         may be repeated; omit to build all.
   workload build        Build the selected SYCL workload.
   build                 Build the workload and dwarf-parser-check.
-  run                   Run the workload, write its manifest, and collect VTune samples.
-  analyze               Generate the VTune reference and run resolver adapters.
-  all                   Build workload, run it under VTune, and analyze with all adapters.
+  run                   Run the workload, write its manifest, and collect selected samples.
+  analyze               Generate selected references and run resolver adapters.
+  all                   Build workload, collect selected samples, and analyze with all adapters.
     --adapters LIST     Comma-separated adapter names, or all (default: all).
   test                  Build the adapter, run CTest, then run Rust adapter tests.
 
@@ -76,9 +81,12 @@ Run options:
   --kernel-debug-json PATH  Workload manifest output path.
   --target-gpu PCI_IDS      VTune GPU adapter IDs.
   --result-dir PATH         VTune result directory.
+  --unitrace-result-dir PATH  Unitrace result directory.
+  --unitrace-shader-dump-dir PATH  IGC shader dump directory for unitrace.
 
 Analyze options:
   --result-dir PATH         Existing VTune result directory.
+  --unitrace-result-dir PATH  Existing unitrace result directory.
   --reference-csv PATH      VTune address-to-source CSV output path.
   --adapters LIST           Comma-separated adapter names, or all.
   --kernel-debug-json PATH  Existing workload manifest path.
@@ -138,6 +146,20 @@ validate_device_target() {
   done
 }
 
+validate_tool() {
+  case "$TOOL" in
+    vtune|unitrace|both)
+      ;;
+    *)
+      die "unsupported tool: $TOOL; expected vtune, unitrace, or both"
+      ;;
+  esac
+}
+
+tool_selected() {
+  [[ "$TOOL" == both || "$TOOL" == "$1" ]]
+}
+
 refresh_derived_paths() {
   if [[ -z "$workload_configuration_from_environment" ]]; then
     if [[ "$DEVICE_CODE" == aot ]]; then
@@ -165,6 +187,14 @@ refresh_derived_paths() {
     VTUNE_REFERENCE_CSV="$WORKLOAD_RESULTS_DIR/vtune_reference.csv"
   fi
   VTUNE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/vtune_manifest.json"
+  DEFAULT_UNITRACE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/unitrace_results"
+  if [[ -z "$unitrace_result_dir_from_environment" ]]; then
+    UNITRACE_RESULT_DIR="$DEFAULT_UNITRACE_RESULT_DIR"
+  fi
+  if [[ -z "$UNITRACE_SHADER_DUMP_DIR" ]]; then
+    UNITRACE_SHADER_DUMP_DIR="$WORKLOAD_RESULTS_DIR/unitrace_shader_dump"
+  fi
+  UNITRACE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/unitrace_manifest.json"
 }
 
 parse_global_options() {
@@ -205,6 +235,11 @@ parse_global_options() {
         BUILD_DIR=$2
         shift 2
         ;;
+      --tool)
+        [[ $# -ge 2 ]] || die "--tool requires vtune, unitrace, or both"
+        TOOL=$2
+        shift 2
+        ;;
       --clean-results)
         CLEAN_RESULTS=true
         shift
@@ -226,6 +261,7 @@ parse_global_options() {
   validate_opt_level
   validate_device_code
   validate_device_target
+  validate_tool
   refresh_derived_paths
   PARSED_ARGUMENTS=("$@")
 }
@@ -309,7 +345,15 @@ workload_build() {
     -DDPC_WORKLOAD_OPT="$OPT_LEVEL" \
     -DDPC_WORKLOAD_DEVICE_CODE="$DEVICE_CODE" \
     -DDPC_WORKLOAD_AOT_TARGET="$DEVICE_TARGET"
-  cmake --build "$WORKLOAD_BUILD_DIR"
+  if tool_selected unitrace && [[ "$DEVICE_CODE" == aot ]]; then
+    rm -rf "$UNITRACE_SHADER_DUMP_DIR"
+    mkdir -p "$UNITRACE_SHADER_DUMP_DIR"
+    log "workload build: writing AOT unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
+    IGC_ShaderDumpEnable=1 IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
+      cmake --build "$WORKLOAD_BUILD_DIR" --clean-first
+  else
+    cmake --build "$WORKLOAD_BUILD_DIR"
+  fi
   log "workload build: binary: $BIN_PATH"
 }
 
@@ -358,6 +402,50 @@ vtune_collect() {
   log "run: collecting VTune samples into $VTUNE_RESULT_DIR"
   ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "$VTUNE_BIN" "${vtune_args[@]}"
   log "run: VTune result: $VTUNE_RESULT_DIR"
+}
+
+unitrace_collect() {
+  require_workload_binary
+  if [[ -e "$UNITRACE_RESULT_DIR" ]]; then
+    log "run: removing previous unitrace result: $UNITRACE_RESULT_DIR"
+    rm -rf "$UNITRACE_RESULT_DIR"
+  fi
+  if [[ "$DEVICE_CODE" == jit ]] && [[ -e "$UNITRACE_SHADER_DUMP_DIR" ]]; then
+    log "run: removing previous unitrace shader dump: $UNITRACE_SHADER_DUMP_DIR"
+    rm -rf "$UNITRACE_SHADER_DUMP_DIR"
+  fi
+  mkdir -p "$(dirname "$KERNEL_DEBUG_JSON")"
+  if [[ "$DEVICE_CODE" == jit ]]; then
+    mkdir -p "$UNITRACE_SHADER_DUMP_DIR"
+  elif [[ ! -d "$UNITRACE_SHADER_DUMP_DIR" ]] ||
+       [[ -z $(find "$UNITRACE_SHADER_DUMP_DIR" -maxdepth 1 -name '*.asm' -print -quit) ]]; then
+    die "AOT unitrace collection requires an IGC shader dump; run 'dwarf-check build' with --tool unitrace first"
+  fi
+
+  log "run: collecting unitrace stall samples into $UNITRACE_RESULT_DIR"
+  if [[ "$DEVICE_CODE" == jit ]]; then
+    log "run: writing unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
+    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
+      IGC_ShaderDumpEnable=1 \
+      IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
+      "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
+      "$BIN_PATH" "$KERNEL_DEBUG_JSON"
+  else
+    log "run: using AOT unitrace shader dump from $UNITRACE_SHADER_DUMP_DIR"
+    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
+      "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
+      "$BIN_PATH" "$KERNEL_DEBUG_JSON"
+  fi
+  log "run: unitrace result: $UNITRACE_RESULT_DIR"
+}
+
+collect_selected_tools() {
+  if tool_selected vtune; then
+    vtune_collect
+  fi
+  if tool_selected unitrace; then
+    unitrace_collect
+  fi
 }
 
 clean_workload_results() {
@@ -424,6 +512,21 @@ PY
   log "analyze: manifest: $VTUNE_MANIFEST_JSON"
 }
 
+generate_unitrace_reference() {
+  if [[ ! -d "$UNITRACE_RESULT_DIR" ]]; then
+    die "unitrace result directory not found: $UNITRACE_RESULT_DIR; run 'dwarf-check run' first"
+  fi
+
+  python3 "$SCRIPT_DIR/data_generation/extract_unitrace_stalls.py" \
+    --result-dir "$UNITRACE_RESULT_DIR" \
+    --kernel-debug-json "$KERNEL_DEBUG_JSON" \
+    --output-dir "$WORKLOAD_RESULTS_DIR" \
+    --manifest-output "$UNITRACE_MANIFEST_JSON" \
+    --shader-dump-dir "$UNITRACE_SHADER_DUMP_DIR"
+  log "analyze: unitrace reference CSVs written to $WORKLOAD_RESULTS_DIR"
+  log "analyze: manifest: $UNITRACE_MANIFEST_JSON"
+}
+
 adapter_run() {
   if [[ ! -x "$BUILD_DIR/dwarf-parser-check" ]]; then
     adapter_build
@@ -436,13 +539,20 @@ adapter_run() {
     workload_execute
   fi
 
-  mkdir -p "$WORKLOAD_RESULTS_DIR"
+  local output_dir=${ADAPTER_OUTPUT_DIR:-"$WORKLOAD_RESULTS_DIR"}
+  local sample_manifest=${SAMPLE_MANIFEST:-}
+  local comparison_label=${COMPARISON_LABEL:-vtune}
+  mkdir -p "$output_dir"
   local resolver_args=(
     --kernel-debug-json "$KERNEL_DEBUG_JSON"
     --adapters "$ADAPTERS"
-    --output-dir "$WORKLOAD_RESULTS_DIR"
+    --output-dir "$output_dir"
+    --comparison-label "$comparison_label"
   )
-  if [[ -f "$VTUNE_MANIFEST_JSON" ]]; then
+  if [[ -n "$sample_manifest" ]]; then
+    [[ -f "$sample_manifest" ]] || die "sample manifest not found: $sample_manifest"
+    resolver_args+=(--vtune-manifest "$sample_manifest")
+  elif [[ -f "$VTUNE_MANIFEST_JSON" ]]; then
     resolver_args+=(--vtune-manifest "$VTUNE_MANIFEST_JSON")
   elif [[ -n ${REFERENCE_FILE:-} ]]; then
     [[ -f "$REFERENCE_FILE" ]] || die "reference file not found: $REFERENCE_FILE"
@@ -451,11 +561,30 @@ adapter_run() {
 
   DPC_GDB_ADDR2LINE="$GDB_ADDR2LINE" \
     "$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" "$@" >/dev/null
-  log "adapter run: per-adapter reports saved to $WORKLOAD_RESULTS_DIR"
+  log "adapter run: per-adapter reports saved to $output_dir"
+}
+
+analyze_selected_tools() {
+  if tool_selected vtune; then
+    generate_vtune_reference
+    REFERENCE_FILE=$VTUNE_REFERENCE_CSV \
+      COMPARISON_LABEL=vtune \
+      ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR" \
+      adapter_run
+  fi
+  if tool_selected unitrace; then
+    generate_unitrace_reference
+    SAMPLE_MANIFEST=$UNITRACE_MANIFEST_JSON \
+      COMPARISON_LABEL=unitrace \
+      ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR/unitrace" \
+      adapter_run
+  fi
 }
 
 run_command() {
   local result_dir="$VTUNE_RESULT_DIR"
+  local unitrace_result_dir="$UNITRACE_RESULT_DIR"
+  local unitrace_shader_dump_dir="$UNITRACE_SHADER_DUMP_DIR"
   local kernel_debug_json="$KERNEL_DEBUG_JSON"
   local target_gpu="$VTUNE_TARGET_GPU"
   while [[ $# -gt 0 ]]; do
@@ -475,6 +604,16 @@ run_command() {
         result_dir=$2
         shift 2
         ;;
+      --unitrace-result-dir)
+        [[ $# -ge 2 ]] || die "run --unitrace-result-dir requires a path"
+        unitrace_result_dir=$2
+        shift 2
+        ;;
+      --unitrace-shader-dump-dir)
+        [[ $# -ge 2 ]] || die "run --unitrace-shader-dump-dir requires a path"
+        unitrace_shader_dump_dir=$2
+        shift 2
+        ;;
       *)
         break
         ;;
@@ -485,14 +624,18 @@ run_command() {
   fi
   KERNEL_DEBUG_JSON=$kernel_debug_json
   VTUNE_RESULT_DIR=$result_dir
+  UNITRACE_RESULT_DIR=$unitrace_result_dir
+  UNITRACE_SHADER_DUMP_DIR=$unitrace_shader_dump_dir
   VTUNE_TARGET_GPU=$target_gpu
   clean_workload_results
-  vtune_collect
+  collect_selected_tools
   REMAINING_ARGUMENTS=("$@")
 }
 
 analyze_command() {
   local result_dir="$VTUNE_RESULT_DIR"
+  local unitrace_result_dir="$UNITRACE_RESULT_DIR"
+  local unitrace_shader_dump_dir="$UNITRACE_SHADER_DUMP_DIR"
   local reference_csv="$VTUNE_REFERENCE_CSV"
   local adapters="$ADAPTERS"
   local kernel_debug_json="$KERNEL_DEBUG_JSON"
@@ -507,6 +650,16 @@ analyze_command() {
       --reference-csv)
         [[ $# -ge 2 ]] || die "analyze --reference-csv requires a path"
         reference_csv=$2
+        shift 2
+        ;;
+      --unitrace-result-dir)
+        [[ $# -ge 2 ]] || die "analyze --unitrace-result-dir requires a path"
+        unitrace_result_dir=$2
+        shift 2
+        ;;
+      --unitrace-shader-dump-dir)
+        [[ $# -ge 2 ]] || die "analyze --unitrace-shader-dump-dir requires a path"
+        unitrace_shader_dump_dir=$2
         shift 2
         ;;
       --adapters)
@@ -533,14 +686,17 @@ analyze_command() {
     die "unknown analyze option: $1"
   fi
   VTUNE_RESULT_DIR=$result_dir
+  UNITRACE_RESULT_DIR=$unitrace_result_dir
+  UNITRACE_SHADER_DUMP_DIR=$unitrace_shader_dump_dir
   VTUNE_REFERENCE_CSV=$reference_csv
   KERNEL_DEBUG_JSON=$kernel_debug_json
   WORKLOAD_RESULTS_DIR=$output_dir
+  VTUNE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/vtune_manifest.json"
+  UNITRACE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/unitrace_manifest.json"
   ADAPTERS=$adapters
 
   [[ -f "$KERNEL_DEBUG_JSON" ]] || die "kernel debug manifest not found: $KERNEL_DEBUG_JSON; run 'dwarf-check run' first"
-  generate_vtune_reference
-  REFERENCE_FILE=$VTUNE_REFERENCE_CSV adapter_run
+  analyze_selected_tools
   REMAINING_ARGUMENTS=("$@")
 }
 
@@ -560,9 +716,8 @@ all_command() {
   done
   clean_workload_results
   workload_build
-  vtune_collect
-  generate_vtune_reference
-  ADAPTERS=$adapters REFERENCE_FILE=$VTUNE_REFERENCE_CSV adapter_run
+  collect_selected_tools
+  ADAPTERS=$adapters analyze_selected_tools
 }
 
 test_project() {

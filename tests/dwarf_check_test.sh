@@ -23,6 +23,7 @@ expect_failure() {
 help_output=$("$DWARF_CHECK" --help)
 [[ "$help_output" == *"adapter build"* ]] || fail "missing adapter build help"
 [[ "$help_output" == *"workload build"* ]] || fail "missing workload build help"
+[[ "$help_output" == *"default: both"* ]] || fail "missing both collector default"
 expect_failure "unsupported debug mode: invalid" "$DWARF_CHECK" --debug invalid build
 expect_failure "unsupported device compilation mode: invalid" "$DWARF_CHECK" --device-code invalid build
 expect_failure "unsupported AOT device target: invalid" "$DWARF_CHECK" --device-target invalid build
@@ -60,6 +61,23 @@ while [[ $# -gt 0 ]]; do
 done
 exit 0
 EOF
+cat > "$temporary_dir/bin/unitrace" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --result-dir)
+      shift 2
+      ;;
+    --stall-sampling)
+      shift
+      ;;
+    *)
+      exec "$@"
+      ;;
+  esac
+done
+EOF
 cat > "$temporary_dir/bin/python3" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -73,6 +91,7 @@ set -euo pipefail
 printf '%s\n' "$@" > "$DPC_TEST_ADAPTER_ARGUMENTS"
 EOF
 chmod +x "$temporary_dir/bin/vtune" "$temporary_dir/bin/python3" \
+  "$temporary_dir/bin/unitrace" \
   "$temporary_dir/build/dwarf-parser-check"
 
 single_run_artifact_dir="$temporary_dir/single-run-artifacts"
@@ -89,15 +108,15 @@ EOF
 chmod +x "$single_run_binary"
 
 DPC_TEST_WORKLOAD_LOG="$single_run_log" \
-VTUNE_BIN="$temporary_dir/bin/vtune" \
-"$DWARF_CHECK" --artifact-dir "$single_run_artifact_dir" run
+UNITRACE_BIN="$temporary_dir/bin/unitrace" \
+"$DWARF_CHECK" --tool unitrace --artifact-dir "$single_run_artifact_dir" run
 
-[[ $(wc -l < "$single_run_log") -eq 1 ]] || fail "run executed the workload outside VTune"
+[[ $(wc -l < "$single_run_log") -eq 1 ]] || fail "run did not execute the workload under unitrace"
 
 DPC_TEST_ADAPTER_ARGUMENTS="$adapter_arguments" \
 PATH="$temporary_dir/bin:$PATH" \
 VTUNE_BIN="$temporary_dir/bin/vtune" \
-"$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --build-dir "$temporary_dir/build" analyze \
+"$DWARF_CHECK" --tool vtune --artifact-dir "$temporary_dir/artifacts" --build-dir "$temporary_dir/build" analyze \
   --result-dir "$temporary_dir/result" \
   --kernel-debug-json "$manifest" \
   --reference-csv "$reference_csv" \

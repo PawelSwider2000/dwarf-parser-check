@@ -81,6 +81,7 @@ std::string BuildCollectedKernelDebugDataJson(
          << "      \"mangled_name\": \"" << EscapeJsonString(dbg->mangled_name) << "\",\n"
          << "      \"demangled_name\": \"" << EscapeJsonString(dbg->demangled_name) << "\",\n"
          << "      \"elf_dwarf_path\": \"" << EscapeJsonString(dbg->elf_dwarf_path) << "\",\n"
+         << "      \"module_native_binary_path\": \"" << EscapeJsonString(dbg->module_native_binary_path) << "\",\n"
          << "      \"module_handle_address\": \"" << FormatHexAddress(dbg->module_handle_address) << "\",\n"
          << "      \"kernel_handle_address\": \"" << FormatHexAddress(dbg->kernel_handle_address) << "\",\n"
          << "      \"runtime_kernel_address\": \"" << FormatHexAddress(dbg->runtime_kernel_address) << "\",\n"

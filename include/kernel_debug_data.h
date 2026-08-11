@@ -12,6 +12,7 @@ struct KernelDebugData {
   std::string mangled_name;
   std::string demangled_name;
   std::string elf_dwarf_path;
+  std::string module_native_binary_path;
   std::uint64_t module_handle_address = 0;
   std::uint64_t kernel_handle_address = 0;
   std::uint64_t runtime_kernel_address = 0;

@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
       write_report_csv(adapter_report, csv_output);
 
       const std::filesystem::path json_path = cli->output_dir /
-          adapter_file_name(adapter_name, "_vtune_comparison.json");
+          adapter_file_name(adapter_name, "_" + cli->comparison_label + "_comparison.json");
       std::ofstream json_output(json_path);
       if (!json_output) {
         throw std::runtime_error("unable to open JSON output file: " + json_path.string());

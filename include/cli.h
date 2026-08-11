@@ -17,6 +17,7 @@ struct CliOptions {
   std::optional<std::filesystem::path> vtune_manifest;
   std::filesystem::path output_dir;
   std::string adapter_selection = "all";
+  std::string comparison_label = "vtune";
 
   bool show_help = false;
 };

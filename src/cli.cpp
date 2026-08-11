@@ -2,6 +2,8 @@
 
 #include "core.h"
 
+#include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <iomanip>
@@ -232,6 +234,15 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
       continue;
     }
 
+    if (argument == "--comparison-label") {
+      const auto value = require_value(argument);
+      if (!value.has_value()) {
+        return std::nullopt;
+      }
+      options.comparison_label = std::string(*value);
+      continue;
+    }
+
     if (argument == "--adapters") {
       const auto value = require_value(argument);
       if (!value.has_value()) {
@@ -253,6 +264,14 @@ std::optional<CliOptions> parse_cli(int argc, char** argv, std::ostream& error_s
     error_stream << "--output-dir is required\n";
     return std::nullopt;
   }
+  if (options.comparison_label.empty() ||
+      !std::all_of(options.comparison_label.begin(), options.comparison_label.end(),
+                   [](unsigned char character) {
+                     return std::isalnum(character) || character == '-' || character == '_';
+                   })) {
+    error_stream << "--comparison-label must contain only letters, digits, '-' or '_'\n";
+    return std::nullopt;
+  }
 
   return options;
 }
@@ -267,6 +286,7 @@ void print_usage(std::ostream& output, const char* program_name) {
         << "  --kernel-debug-json <PATH>  Metadata JSON written by simple_sycl_vtune\n"
          << "  --adapters <LIST>     Comma-separated adapters or 'all' (compiled: " << adapter_list << ")\n"
          << "  --reference <PATH>    Optional reference or VTune source-locations JSON\n"
+         << "  --comparison-label <NAME>  Label used in comparison JSON filenames (default: vtune)\n"
          << "  --output-dir <PATH>   Write one CSV and comparison JSON per selected adapter\n"
          << "  --help, -h            Show this help message\n";
 }

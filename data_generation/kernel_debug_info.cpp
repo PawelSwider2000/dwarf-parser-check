@@ -66,6 +66,25 @@ std::string WriteKernelDwarfFile(const std::string &kernelName,
   return std::filesystem::absolute(dwarfFilePath).string();
 }
 
+std::string WriteModuleNativeBinaryFile(
+    const std::string &kernelName, const std::vector<uint8_t> &nativeBinary) {
+  const std::filesystem::path nativeBinaryPath =
+      gArtifactDirectory / (kernelName + ".zebin");
+  std::ofstream nativeBinaryFile(nativeBinaryPath,
+                                 std::ios::binary | std::ios::trunc);
+  if (!nativeBinaryFile) {
+    std::cerr << "[tracer] WARNING: Failed to open " << nativeBinaryPath
+              << " for writing\n";
+    return "";
+  }
+
+  nativeBinaryFile.write(reinterpret_cast<const char *>(nativeBinary.data()),
+                         static_cast<std::streamsize>(nativeBinary.size()));
+  std::cout << "[tracer] Saved native module binary to " << nativeBinaryPath
+            << "\n";
+  return std::filesystem::absolute(nativeBinaryPath).string();
+}
+
 void OnExitKernelCreate(ze_kernel_create_params_t *params,
                         ze_result_t result, void * /*globalData*/,
                         void ** /*instanceData*/) {
@@ -102,6 +121,21 @@ void OnExitKernelCreate(ze_kernel_create_params_t *params,
     std::cerr << "[tracer] WARNING: zeModuleGetNativeBinary size query failed for "
               << kernelName << "\n";
     moduleNativeBinarySize = 0;
+  }
+
+  std::string moduleNativeBinaryPath;
+  if (moduleNativeBinarySize > 0) {
+    std::vector<uint8_t> nativeBinary(moduleNativeBinarySize);
+    status = zeModuleGetNativeBinary(module, &moduleNativeBinarySize,
+                                     nativeBinary.data());
+    if (status != ZE_RESULT_SUCCESS) {
+      std::cerr << "[tracer] WARNING: zeModuleGetNativeBinary failed for "
+                << kernelName << "\n";
+    } else {
+      nativeBinary.resize(moduleNativeBinarySize);
+      moduleNativeBinaryPath =
+          WriteModuleNativeBinaryFile(kernelName, nativeBinary);
+    }
   }
 
   bool kernelBinarySizeCollected = false;
@@ -143,6 +177,7 @@ void OnExitKernelCreate(ze_kernel_create_params_t *params,
   debugData.mangled_name = kernelName;
   debugData.demangled_name = DemangleKernelName(kernelName);
   debugData.elf_dwarf_path = elfDwarfPath;
+  debugData.module_native_binary_path = moduleNativeBinaryPath;
   debugData.module_handle_address = reinterpret_cast<uint64_t>(module);
   debugData.kernel_handle_address = reinterpret_cast<uint64_t>(kernel);
   debugData.runtime_kernel_address = runtimeKernelAddress;
