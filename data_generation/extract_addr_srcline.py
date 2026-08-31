@@ -15,6 +15,7 @@ Usage:
 import argparse
 import csv
 import json
+import itertools
 import os
 import re
 import subprocess
@@ -274,6 +275,37 @@ def correlate_vtune_locations(
     return locations
 
 
+def report_instruction_addresses(path: Path) -> set[int]:
+    """Return instruction addresses from a VTune CSV report.
+
+    VTune emits a warning before the CSV header on some versions, so find the
+    header in the same way as correlate_vtune_report.py. An address identifies
+    a reported instruction even when VTune did not export a source line.
+    """
+    with path.open(encoding="utf-8", errors="replace", newline="") as stream:
+        header = next(
+            (line for line in stream if "Address" in next(csv.reader([line]), [])),
+            None,
+        )
+        reader = csv.DictReader(itertools.chain([header], stream)) if header else None
+        if reader is None or reader.fieldnames is None or "Address" not in reader.fieldnames:
+            raise ValueError(f"VTune report has no Address column: {path}")
+
+        addresses = set()
+        for row in reader:
+            try:
+                addresses.add(int(row["Address"], 16))
+            except (KeyError, TypeError, ValueError):
+                continue
+    return addresses
+
+
+def kernel_report_path(input_csv: Path, kernel_name: str) -> Path:
+    safe_kernel_name = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel_name)
+    candidate = input_csv.with_name(f"{input_csv.stem}_{safe_kernel_name}{input_csv.suffix}")
+    return candidate if candidate.is_file() else input_csv
+
+
 def generate_vtune_reference(
     ref_csv: Path,
     out_dir: Path,
@@ -281,14 +313,15 @@ def generate_vtune_reference(
 ) -> list[dict]:
     """Write a correlateable reference CSV and raw IP list per VTune kernel.
 
-    Columns: Address, Source File, Source Line, Assembly, <any extra cols from ref_csv>.
-    Rows come from the DB (nested_level=None = raw DWARF entry); assembly and extra
-    counter columns are filled from ref_csv where available. Rows without both a
-    source file and line cannot be compared, so neither they nor their addresses
-    are included in the adapter inputs.
+    The IP list contains every distinct address from the per-kernel VTune result
+    report. The reference CSV contains the subset with a DWARF source location;
+    the database supplies only the display-address to RVA translation. Extra
+    counter columns are copied from the report when available.
     """
     conn = sqlite3.connect(VTUNE_DB)
-    # Fetch raw DWARF entries only (nested_level IS NULL) to stay true to .debug_line
+    # Fetch raw DWARF entries only (nested_level IS NULL) to stay true to .debug_line.
+    # These entries establish the display-address to RVA translation, but they are
+    # not a complete instruction inventory; the result report owns that inventory.
     db_rows = conn.execute("""
         SELECT cl.display_address, cl.rva, ms.gpu_kernel_name
         FROM dd_code_location cl
@@ -298,15 +331,14 @@ def generate_vtune_reference(
     """).fetchall()
     conn.close()
 
-    # Group by kernel name; store DWARF-correlated (display_address, rva, line, path).
-    by_kernel: dict[str, list[tuple[int, int, int, str]]] = {}
+    # Group by kernel name and use the database only for its stable
+    # display-address - RVA section offset.
+    by_kernel: dict[str, dict[int, int]] = {}
     for addr, rva, kernel in db_rows:
-        if addr is None:
+        if addr is None or rva is None:
             continue
         key = kernel or "unknown"
-        location = correlated_locations.get(key, {}).get(addr)
-        line, path = location if location is not None else (0, "")
-        by_kernel.setdefault(key, []).append((addr, rva or 0, line, path))
+        by_kernel.setdefault(key, {})[addr] = rva
 
     # Load extra columns (assembly, stall counts) from ref_csv keyed by address
     extra_cols: list[str] = []
@@ -325,18 +357,30 @@ def generate_vtune_reference(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     manifest_kernels: list[dict] = []
-    for kernel, entries in sorted(by_kernel.items()):
+    for kernel, rvas_by_display_address in sorted(by_kernel.items()):
+        report_path = kernel_report_path(ref_csv, kernel)
+        report_addresses = report_instruction_addresses(report_path) if report_path.is_file() else set()
+        if report_addresses:
+            section_file_offsets = {
+                address - rva for address, rva in rvas_by_display_address.items()
+            }
+            if len(section_file_offsets) > 1:
+                raise ValueError(
+                    f"multiple section file offsets for kernel {kernel}: "
+                    f"{', '.join(hex(offset) for offset in sorted(section_file_offsets))}"
+                )
+            section_file_offset = next(iter(section_file_offsets), 0)
+        else:
+            section_file_offset = 0
+        locations = correlated_locations.get(kernel, {})
         correlateable_entries = [
-            entry for entry in entries if entry[2] > 0 and entry[3]
+            (address, address - section_file_offset, line, path)
+            for address, (line, path) in sorted(locations.items())
+            if address in report_addresses
         ]
         safe = re.sub(r"[^a-zA-Z0-9_-]", "_", kernel)
         out_path = out_dir / f"vtune_reference_{safe}.csv"
         ip_list_path = out_dir / f"vtune_ips_{safe}.txt"
-        # section_file_offset = kernel base = display_address - rva (constant per kernel)
-        section_file_offset = (
-            correlateable_entries[0][0] - correlateable_entries[0][1]
-            if correlateable_entries else 0
-        )
         with open(out_path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow(["Kernel Offset", "Source File", "Source Line"] + extra_cols)
@@ -345,15 +389,22 @@ def generate_vtune_reference(
                 w.writerow([hex(rva), path, line] +
                            [extra.get(c, "") for c in extra_cols])
         print(f"Written {len(correlateable_entries)} correlateable rows → {out_path}")
-        unique_addresses = sorted({addr for addr, _, _, _ in correlateable_entries})
         with open(ip_list_path, "w") as f:
-            for addr in unique_addresses:
+            for addr in sorted(report_addresses):
                 f.write(f"{addr:#x}\n")
-        print(f"Written {len(unique_addresses)} correlateable IPs → {ip_list_path}")
+        print(f"Written {len(report_addresses)} VTune report IPs → {ip_list_path}")
+        print(
+            f"VTune coverage for {kernel}: sampled={len(report_addresses)}, "
+            f"mapped={len(correlateable_entries)}, "
+            f"unmapped={len(report_addresses) - len(correlateable_entries)}"
+        )
         manifest_kernels.append({
             "name": kernel,
             "reference_csv": str(out_path.resolve()),
             "ip_list": str(ip_list_path.resolve()),
+            "sampled_ip_count": len(report_addresses),
+            "mapped_ip_count": len(correlateable_entries),
+            "unmapped_ip_count": len(report_addresses) - len(correlateable_entries),
             "section_file_offset": hex(section_file_offset),
         })
     return manifest_kernels

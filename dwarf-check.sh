@@ -473,6 +473,7 @@ generate_vtune_reference() {
     -group-by address
     -column Address
     -column "Source Line"
+    -column Assembly
     -format csv
     -csv-delimiter comma
     -report-width 0

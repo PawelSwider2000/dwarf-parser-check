@@ -228,7 +228,10 @@ def correlate(
             is_instruction = (
                 assembly and not assembly.startswith("Block ") and assembly != "illegal"
                 if "Assembly" in reader.fieldnames
-                else bool(row.get("Source Line", ""))
+                # Address-only VTune reports omit Assembly and leave Source Line
+                # blank for valid instructions. The report address is the only
+                # available instruction identity in that format.
+                else bool(row.get("Address", "").strip())
             )
             if is_instruction:
                 instruction_count += 1

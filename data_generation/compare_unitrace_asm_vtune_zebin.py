@@ -117,6 +117,45 @@ def run_ocloc(ocloc: str, zebin: Path, output_dir: Path) -> Path:
     return dump_dir
 
 
+def write_addressed_zebin_disassemblies(
+    disassembly_dir: Path,
+    zebin: Path,
+) -> dict[str, Path]:
+    sections = read_sections(zebin)
+    addressed_assemblies = {}
+    for assembly in sorted(disassembly_dir.glob(".text.*.asm")):
+        section_name = assembly.name.removesuffix(".asm")
+        section = sections.get(section_name)
+        if section is None:
+            raise ValueError(f"section {section_name} from {assembly} not found in {zebin}")
+        _, section_size = section
+        instruction_pointer = 0
+        instruction_count = 0
+        addressed_assembly = assembly.with_suffix(assembly.suffix + ".ip")
+        with assembly.open(encoding="utf-8", errors="replace") as source, addressed_assembly.open(
+            "w", encoding="utf-8"
+        ) as output:
+            for raw_line in source:
+                line = raw_line.rstrip("\n")
+                if not line.strip() or line.rstrip().endswith(":"):
+                    output.write(raw_line)
+                    continue
+                output.write(f"/* [{instruction_pointer:08X}] */ {raw_line}")
+                instruction_pointer += 0x8 if "Compacted" in line else 0x10
+                instruction_count += 1
+        if instruction_count == 0:
+            raise ValueError(f"no instructions found in final zebin disassembly {assembly}")
+        if instruction_pointer != section_size:
+            raise ValueError(
+                f"final zebin disassembly size mismatch for {section_name}: "
+                f"decoded {instruction_pointer:#x}, ELF section is {section_size:#x}"
+            )
+        addressed_assemblies[section_name] = addressed_assembly
+    if not addressed_assemblies:
+        raise ValueError(f"no .text section disassemblies found in {disassembly_dir}")
+    return addressed_assemblies
+
+
 def first_difference(left: bytes, right: bytes) -> int | None:
     for index, (left_byte, right_byte) in enumerate(zip(left, right)):
         if left_byte != right_byte:
@@ -124,7 +163,11 @@ def first_difference(left: bytes, right: bytes) -> int | None:
     return None
 
 
-def compare_kernel(assembly_ip: Path, zebin: Path) -> dict[str, object]:
+def compare_kernel(
+    assembly_ip: Path,
+    zebin: Path,
+    zebin_assembly_ip: Path,
+) -> dict[str, object]:
     kernel_name = read_kernel_name(assembly_ip)
     assembly = assembly_ip.with_suffix("")
     kernel_elf = assembly.with_suffix(".elf")
@@ -148,6 +191,7 @@ def compare_kernel(assembly_ip: Path, zebin: Path) -> dict[str, object]:
         "kernel": kernel_name,
         "status": status,
         "assembly_ip": str(assembly_ip.resolve()),
+        "zebin_assembly_ip": str(zebin_assembly_ip.resolve()),
         "igc_kernel_elf": str(kernel_elf.resolve()),
         "section": section_name,
         "igc_text_size": len(igc_code),
@@ -177,11 +221,23 @@ def main() -> int:
         output_dir = arguments.output_dir or results_dir / "unitrace_zebin_comparison"
         output_dir.mkdir(parents=True, exist_ok=True)
         disassembly_dir = run_ocloc(arguments.ocloc, zebin, output_dir)
+        addressed_zebin_disassemblies = write_addressed_zebin_disassemblies(
+            disassembly_dir, zebin
+        )
         report = {
             "vtune_zebin": str(zebin.resolve()),
             "vtune_zebin_sha256": hashlib.sha256(zebin.read_bytes()).hexdigest(),
             "ocloc_disassembly_dir": str(disassembly_dir.resolve()),
-            "kernels": [compare_kernel(assembly, zebin) for assembly in assembly_files],
+            "kernels": [
+                compare_kernel(
+                    assembly,
+                    zebin,
+                    addressed_zebin_disassemblies[
+                        f".text.{read_kernel_name(assembly)}"
+                    ],
+                )
+                for assembly in assembly_files
+            ],
         }
         report_path = output_dir / "report.json"
         report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

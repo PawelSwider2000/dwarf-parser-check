@@ -174,6 +174,16 @@ mkdir -p "$output_dir"
 cat > "$output_dir/adapter_rust-gimli_vtune_comparison.json" <<'JSON'
 {"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"skipped","skip_reason":"VTune reference contains no source locations","mismatch_count":0,"summary":{"compared_offsets":0,"matches":0,"file_mismatches":0,"line_mismatches":0,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
 JSON
+mkdir -p "$output_dir/unitrace"
+cat > "$output_dir/unitrace/adapter_rust-gimli_unitrace_comparison.json" <<'JSON'
+{"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"compared","mismatch_count":2,"summary":{"compared_offsets":3,"matches":1,"file_mismatches":1,"line_mismatches":1,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
+JSON
+cat > "$output_dir/vtune_manifest.json" <<'JSON'
+{"kernels":[{"sampled_ip_count":8,"mapped_ip_count":5,"unmapped_ip_count":3}]}
+JSON
+cat > "$output_dir/unitrace_manifest.json" <<'JSON'
+{"kernels":[{"sampled_ip_count":7,"mapped_ip_count":3,"unmapped_ip_count":4}]}
+JSON
 EOF
 chmod +x "$fake_dwarf_check"
 
@@ -192,4 +202,26 @@ if summary["summary"] != {"total": 30, "passed": 0, "skipped": 30, "failed": 0}:
     raise SystemExit("incorrect experiment summary")
 if any(experiment["status"] != "SKIP" for experiment in summary["experiments"]):
     raise SystemExit("expected every experiment to be skipped")
+if any(
+  {key: experiment["unitrace_comparison"][key] for key in ("mismatch_count", "summary")} != {
+    "mismatch_count": 2,
+    "summary": {
+      "compared_offsets": 3,
+      "matches": 1,
+      "file_mismatches": 1,
+      "line_mismatches": 1,
+      "column_mismatches": 0,
+      "missing_in_reference": 0,
+      "missing_in_backend": 0,
+    },
+  }
+  for experiment in summary["experiments"]
+):
+  raise SystemExit("unitrace comparison summary missing or incorrect")
+if any(experiment["comparison"].get("coverage") != {"sampled_ips": 8, "mapped_ips": 5, "unmapped_ips": 3}
+     for experiment in summary["experiments"]):
+  raise SystemExit("VTune coverage summary missing or incorrect")
+if any(experiment["unitrace_comparison"].get("coverage") != {"sampled_ips": 7, "mapped_ips": 3, "unmapped_ips": 4}
+     for experiment in summary["experiments"]):
+  raise SystemExit("unitrace coverage summary missing or incorrect")
 PY

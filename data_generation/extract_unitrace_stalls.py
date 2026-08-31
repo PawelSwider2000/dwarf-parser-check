@@ -9,6 +9,8 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
+from annotate_zebin_asm import line_locations
+
 
 FILE_MARKER = re.compile(r"^//\s*File:\s*(.+)$")
 LINE_MARKER = re.compile(r"^//\s*Line\s+(\d+):")
@@ -169,36 +171,64 @@ def main() -> int:
             kernel_name = kernel["name"]
             shader_dump = shader_dump_for_kernel(arguments.shader_dump_dir, kernel_name)
             addressed_shader_dump = write_addressed_shader_dump(shader_dump)
-            locations = shader_locations(shader_dump)
+            marker_locations = shader_locations(shader_dump)
+            native_zebin = Path(kernel.get("module_native_binary_path", ""))
+            if not native_zebin.is_file():
+                raise ValueError(
+                    f"native zebin for {kernel_name} is unavailable: {native_zebin}"
+                )
+            dwarf_locations = line_locations(native_zebin, offsets)
 
-            references = []
+            marker_references = []
             for offset in offsets:
-                location = locations.get(offset)
+                location = marker_locations.get(offset)
                 if location is not None:
-                    references.append((offset, *location))
-            if not references:
-                raise ValueError(f"no unitrace sample offsets mapped to IGC shader source for {kernel_name}")
+                    marker_references.append((offset, *location))
+
+            dwarf_references = []
+            for offset in offsets:
+                location = dwarf_locations.get(offset)
+                if location is not None:
+                    dwarf_references.append((offset, location.file, location.line))
+            if not dwarf_references:
+                raise ValueError(f"no unitrace sample offsets mapped through DWARF for {kernel_name}")
 
             safe_kernel_name = safe_name(kernel_name)
-            reference_path = arguments.output_dir / f"unitrace_reference_{safe_kernel_name}.csv"
+            marker_reference_path = arguments.output_dir / f"unitrace_reference_{safe_kernel_name}.csv"
+            dwarf_reference_path = arguments.output_dir / f"unitrace_dwarf_reference_{safe_kernel_name}.csv"
             ip_list_path = arguments.output_dir / f"unitrace_ips_{safe_kernel_name}.txt"
-            with reference_path.open("w", encoding="utf-8", newline="") as stream:
-                writer = csv.writer(stream)
-                writer.writerow(["Kernel Offset", "Source File", "Source Line"])
-                writer.writerows((hex(offset), source_file, source_line) for offset, source_file, source_line in references)
+            for reference_path, references in (
+                (marker_reference_path, marker_references),
+                (dwarf_reference_path, dwarf_references),
+            ):
+                with reference_path.open("w", encoding="utf-8", newline="") as stream:
+                    writer = csv.writer(stream)
+                    writer.writerow(["Kernel Offset", "Source File", "Source Line"])
+                    writer.writerows(
+                        (hex(offset), source_file, source_line)
+                        for offset, source_file, source_line in references
+                    )
             with ip_list_path.open("w", encoding="utf-8") as stream:
-                for offset, _, _ in references:
+                for offset in offsets:
                     stream.write(f"{offset:#x}\n")
             manifest_kernels.append(
                 {
                     "name": kernel_name,
-                    "reference_csv": str(reference_path.resolve()),
+                    "reference_csv": str(dwarf_reference_path.resolve()),
+                    "marker_reference_csv": str(marker_reference_path.resolve()),
                     "ip_list": str(ip_list_path.resolve()),
                     "addressed_shader_dump": str(addressed_shader_dump.resolve()),
+                    "sampled_ip_count": len(offsets),
+                    "mapped_ip_count": len(dwarf_references),
+                    "unmapped_ip_count": len(offsets) - len(dwarf_references),
+                    "marker_mapped_ip_count": len(marker_references),
                     "section_file_offset": "0x0",
                 }
             )
-            print(f"extract_unitrace_stalls: wrote {len(references)} samples for {kernel_name}")
+            print(
+                f"extract_unitrace_stalls: wrote {len(dwarf_references)} DWARF and "
+                f"{len(marker_references)} IGC-marker locations for {kernel_name}"
+            )
 
         if not manifest_kernels:
             raise ValueError("no unitrace samples matched kernels in kernel_debug.json")

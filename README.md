@@ -125,9 +125,12 @@ entry. The experiment summary distinguishes `SKIP` (VTune provided no source
 locations to compare) from `FAIL`.
 
 After the matrix completes, `artifacts/experiment_summary.json` contains one
-record per experiment with its name, `PASS` or `FAIL` status, mismatch count,
-and aggregated rust-gimli comparison summary. Set `ARTIFACT_DIR` or
-`EXPERIMENT_SUMMARY_FILE` to choose a different location.
+record per experiment with its name, `PASS` or `FAIL` status, the VTune/DWARF
+aggregate in `comparison`, and the unitrace/DWARF aggregate in
+`unitrace_comparison`. Each aggregate also includes `coverage` with sampled,
+DWARF-mapped, and unmapped IP counts. `PASS` and `SKIP` status remain based on
+the VTune/DWARF comparison. Set `ARTIFACT_DIR` or `EXPERIMENT_SUMMARY_FILE` to
+choose a different location.
 
 ## Output
 
@@ -135,6 +138,13 @@ and aggregated rust-gimli comparison summary. Set `ARTIFACT_DIR` or
 both to the resolver. Adapters resolve only the supplied IPs; they do not scan
 or infer instruction boundaries. It also retains `source_locations.json` as a
 diagnostic sidecar, but does not use that JSON file for comparisons.
+
+For unitrace, `analyze` uses the sampled IPs with source locations from the
+matching native zebin's DWARF line table. This tests the same address-to-DWARF
+contract as VTune. The IGC `// File:` and `// Line` assembly markers are written
+to a separate `unitrace_reference_*.csv`, recorded in the manifest as
+`marker_reference_csv`, and remain a diagnostic: they may attribute an IP to an
+inlined helper or call site rather than the primary DWARF location.
 
 For each selected adapter, the output directory contains a resolution CSV and
 a comparison JSON report. The default output directory is

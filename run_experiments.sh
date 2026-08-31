@@ -42,50 +42,81 @@ write_experiment_record() {
   local name=$2
   local workload=$3
   local configuration=$4
-  local comparison_file="$ARTIFACT_DIR/results/$workload/$configuration/adapter_rust-gimli_vtune_comparison.json"
+  local result_dir="$ARTIFACT_DIR/results/$workload/$configuration"
+  local comparison_file="$result_dir/adapter_rust-gimli_vtune_comparison.json"
+  local unitrace_comparison_file="$result_dir/unitrace/adapter_rust-gimli_unitrace_comparison.json"
+  local vtune_manifest="$result_dir/vtune_manifest.json"
+  local unitrace_manifest="$result_dir/unitrace_manifest.json"
 
-  python3 - "$EXPERIMENT_RECORDS_FILE" "$status" "$name" "$comparison_file" <<'PY'
+  python3 - "$EXPERIMENT_RECORDS_FILE" "$status" "$name" "$comparison_file" "$unitrace_comparison_file" "$vtune_manifest" "$unitrace_manifest" <<'PY'
 import json
 import pathlib
 import sys
 
-records_path, status, name, comparison_path = sys.argv[1:]
-record = {"name": name, "status": status, "comparison": None}
-path = pathlib.Path(comparison_path)
+records_path, status, name, vtune_comparison_path, unitrace_comparison_path, vtune_manifest_path, unitrace_manifest_path = sys.argv[1:]
+record = {"name": name, "status": status, "comparison": None, "unitrace_comparison": None}
+summary_keys = (
+  "compared_offsets",
+  "matches",
+  "file_mismatches",
+  "line_mismatches",
+  "column_mismatches",
+  "missing_in_reference",
+  "missing_in_backend",
+)
 
-if path.is_file():
+def aggregate_comparison(path):
+  comparisons = json.loads(path.read_text())["comparisons"]
+  summary = {key: 0 for key in summary_keys}
+  mismatch_count = 0
+  for comparison in comparisons:
+    mismatch_count += comparison["mismatch_count"]
+    for key in summary_keys:
+      summary[key] += comparison["summary"][key]
+  return {"mismatch_count": mismatch_count, "summary": summary}, comparisons
+
+def collector_coverage(path_text):
+  path = pathlib.Path(path_text)
+  if not path.is_file():
+    return None
   try:
-    comparisons = json.loads(path.read_text())["comparisons"]
-    summary_keys = (
-      "compared_offsets",
-      "matches",
-      "file_mismatches",
-      "line_mismatches",
-      "column_mismatches",
-      "missing_in_reference",
-      "missing_in_backend",
-    )
-    summary = {key: 0 for key in summary_keys}
-    mismatch_count = 0
-    for comparison in comparisons:
-      mismatch_count += comparison["mismatch_count"]
-      for key in summary_keys:
-        summary[key] += comparison["summary"][key]
-    record["comparison"] = {
-      "mismatch_count": mismatch_count,
-      "summary": summary,
+    kernels = json.loads(path.read_text())["kernels"]
+    coverage_keys = ("sampled_ip_count", "mapped_ip_count", "unmapped_ip_count")
+    if not any(any(key in kernel for key in coverage_keys) for kernel in kernels):
+      return None
+    return {
+        "sampled_ips": sum(kernel.get("sampled_ip_count", 0) for kernel in kernels),
+        "mapped_ips": sum(kernel.get("mapped_ip_count", 0) for kernel in kernels),
+        "unmapped_ips": sum(kernel.get("unmapped_ip_count", 0) for kernel in kernels),
     }
-    if status == "PASS" and comparisons and all(
-        comparison.get("status") == "skipped" for comparison in comparisons
-    ):
-      record["status"] = "SKIP"
-      record["skip_reasons"] = [
-          comparison.get("skip_reason", "") for comparison in comparisons
-      ]
+  except (KeyError, OSError, ValueError, json.JSONDecodeError):
+    return None
+
+def store_comparison(field, error_field, path_text, manifest_path):
+  path = pathlib.Path(path_text)
+  if not path.is_file():
+    record[error_field] = f"comparison file not found: {path}"
+    return None
+  try:
+    aggregate, comparisons = aggregate_comparison(path)
+    coverage = collector_coverage(manifest_path)
+    if coverage is not None:
+      aggregate["coverage"] = coverage
+    record[field] = aggregate
+    return comparisons
   except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
-    record["comparison_error"] = str(error)
-else:
-  record["comparison_error"] = f"comparison file not found: {path}"
+    record[error_field] = str(error)
+    return None
+
+vtune_comparisons = store_comparison("comparison", "comparison_error", vtune_comparison_path, vtune_manifest_path)
+store_comparison("unitrace_comparison", "unitrace_comparison_error", unitrace_comparison_path, unitrace_manifest_path)
+if status == "PASS" and vtune_comparisons and all(
+    comparison.get("status") == "skipped" for comparison in vtune_comparisons
+):
+  record["status"] = "SKIP"
+  record["skip_reasons"] = [
+      comparison.get("skip_reason", "") for comparison in vtune_comparisons
+  ]
 
 with open(records_path, "a", encoding="utf-8") as records_file:
   records_file.write(json.dumps(record) + "\n")
