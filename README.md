@@ -34,6 +34,14 @@ Run `./dwarf-check --help` for the complete command reference.
 ./dwarf-check test             # Run CTest and Rust gimli adapter tests.
 ```
 
+Build the PTI GPU ELF parser adapter. Its MIT-licensed PTI parser source is
+vendored under `src/adapters/pti/gpu_elf_parser`, so no PTI SDK checkout is
+required:
+
+```bash
+./dwarf-check adapter build --adapter pti-elf-parser
+```
+
 The workload, VTune collection, and resolver stages are independent. After a
 successful collection, rerun `analyze` to iterate on adapters without
 repeating the hardware profiling run.
@@ -131,6 +139,19 @@ aggregate in `comparison`, and the unitrace/DWARF aggregate in
 DWARF-mapped, and unmapped IP counts. `PASS` and `SKIP` status remain based on
 the VTune/DWARF comparison. Set `ARTIFACT_DIR` or `EXPERIMENT_SUMMARY_FILE` to
 choose a different location.
+
+## Charts
+
+Generate status, mismatch, and coverage charts from a completed experiment
+summary:
+
+```bash
+python3 data_generation/plot_experiment_summary.py \
+	artifacts/experiment_summary.json --adapter rust-gimli
+```
+
+The default output directory is `artifacts/charts`. Every figure title, the
+generated `chart_metadata.json`, and the chart README identify the adapter.
 
 ## Output
 

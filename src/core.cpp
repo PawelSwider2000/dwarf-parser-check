@@ -9,6 +9,7 @@
 #include "compare.h"
 #include "adapters/gimli/rust_gimli_adapter.h"
 #include "adapters/iga/iga_adapter.h"
+#include "adapters/pti/pti_elf_parser_adapter.h"
 
 namespace dwarf_parser_check {
 
@@ -29,6 +30,9 @@ std::vector<AdapterDescriptor> compiled_adapter_descriptors() {
 #endif
 #if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
   descriptors.push_back({"gdb-intel", &make_gdb_intel_adapter});
+#endif
+#if defined(DPC_HAVE_PTI_ELF_PARSER_ADAPTER)
+  descriptors.push_back({"pti-elf-parser", &make_pti_elf_parser_adapter});
 #endif
   return descriptors;
 }

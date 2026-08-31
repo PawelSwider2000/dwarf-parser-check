@@ -15,7 +15,7 @@ DEVICE_CODE_MODES=(jit aot)
 # AOT builds produce one fat binary containing native images for each target.
 AOT_TARGETS=${AOT_TARGETS:-bmg,pvc}
 
-# Comma-separated adapter names to build and run (rust-gimli, iga, gdb-intel).
+# Comma-separated adapter names to build and run (rust-gimli, iga, gdb-intel, pti-elf-parser).
 # Defaults to rust-gimli because gdb-intel requires an external addr2line binary.
 ADAPTERS=${ADAPTERS:-rust-gimli}
 

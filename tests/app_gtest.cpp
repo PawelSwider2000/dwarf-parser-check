@@ -269,6 +269,7 @@ TEST(KernelDebugManifestTest, LoadsEveryKernelRecord) {
   EXPECT_EQ(second_request.mangled_kernel_name, "_ZSecond");
 }
 
+#if defined(DPC_HAVE_RUST_GIMLI_ADAPTER)
 TEST(CoreTest, CreateAdaptersTrimsWhitespace) {
   auto adapters = create_adapters("  rust-gimli\t ");
 
@@ -276,6 +277,17 @@ TEST(CoreTest, CreateAdaptersTrimsWhitespace) {
   ASSERT_NE(adapters[0], nullptr);
   EXPECT_EQ(adapters[0]->name(), "rust-gimli");
 }
+#endif
+
+#if defined(DPC_HAVE_PTI_ELF_PARSER_ADAPTER)
+TEST(CoreTest, CreatesPtiElfParserAdapter) {
+  auto adapters = create_adapters(" pti-elf-parser ");
+
+  ASSERT_EQ(adapters.size(), 1U);
+  ASSERT_NE(adapters[0], nullptr);
+  EXPECT_EQ(adapters[0]->name(), "pti-elf-parser");
+}
+#endif
 
 TEST(CoreTest, ComparesEverySelectedAdapterAgainstVtuneCsv) {
   const std::filesystem::path reference_path =
@@ -337,6 +349,7 @@ TEST(ComparisonTest, LoadsEveryMappedVtuneCsvRow) {
   EXPECT_EQ(reference_locations.locations[1].line, 20U);
 }
 
+#if defined(DPC_HAVE_RUST_GIMLI_ADAPTER)
 TEST(CliTest, PrintUsageListsCompiledAdapters) {
   std::ostringstream output;
   print_usage(output, "dwarf-parser-check");
@@ -370,6 +383,7 @@ TEST(RustGimliAdapterTest, ResolvesSuppliedAddressToUserSource) {
   EXPECT_TRUE(ends_with(resolution.locations.front().location.file, "simple_sycl_vtune.cpp"));
   ASSERT_TRUE(resolution.locations.front().location.line.has_value());
 }
+#endif
 
 #if defined(DPC_HAVE_GDB_INTEL_ADAPTER)
 TEST(GdbIntelAdapterTest, RequiresAConfiguredExecutable) {

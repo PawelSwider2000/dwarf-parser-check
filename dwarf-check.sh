@@ -67,7 +67,7 @@ Global options must appear before the first command:
 
 Commands:
   adapter build         Configure and build dwarf-parser-check.
-    --adapter NAME      Build only the named adapter(s) (gimli-rust, iga, gdb-intel);
+    --adapter NAME      Build only the named adapter(s) (gimli-rust, iga, gdb-intel, pti-elf-parser);
                         may be repeated; omit to build all.
   workload build        Build the selected SYCL workload.
   build                 Build the workload and dwarf-parser-check.
@@ -281,16 +281,17 @@ adapter_build() {
     esac
   done
 
-  local enable_gimli=ON enable_iga=OFF enable_gdb=OFF
+  local enable_gimli=ON enable_iga=OFF enable_gdb=OFF enable_pti_elf_parser=OFF
   if [[ -n "$adapters_requested" ]]; then
-    enable_gimli=OFF enable_iga=OFF enable_gdb=OFF
+    enable_gimli=OFF enable_iga=OFF enable_gdb=OFF enable_pti_elf_parser=OFF
     IFS=',' read -ra _adapter_list <<< "$adapters_requested"
     for _a in "${_adapter_list[@]}"; do
       case "$_a" in
         gimli-rust) enable_gimli=ON ;;
         iga)        enable_iga=ON ;;
         gdb-intel)  enable_gdb=ON ;;
-        *) die "unknown adapter: $_a; expected gimli-rust, iga, or gdb-intel" ;;
+        pti-elf-parser) enable_pti_elf_parser=ON ;;
+        *) die "unknown adapter: $_a; expected gimli-rust, iga, gdb-intel, or pti-elf-parser" ;;
       esac
     done
   fi
@@ -298,7 +299,6 @@ adapter_build() {
   if [[ "$enable_gdb" == ON ]] && [[ ! -x "$GDB_ADDR2LINE" ]]; then
     die "IntelGT addr2line executable not found: $GDB_ADDR2LINE"
   fi
-
   local cmake_args=(
     -S "$SCRIPT_DIR"
     -B "$BUILD_DIR"
@@ -307,6 +307,7 @@ adapter_build() {
     -DDPC_ENABLE_GIMLI_ADAPTER="$enable_gimli"
     -DDPC_ENABLE_IGA_ADAPTER="$enable_iga"
     -DDPC_ENABLE_GDB_INTEL_ADAPTER="$enable_gdb"
+    -DDPC_ENABLE_PTI_ELF_PARSER_ADAPTER="$enable_pti_elf_parser"
   )
   if [[ "$enable_gdb" == ON ]]; then
     cmake_args+=(-DDPC_GDB_ADDR2LINE_EXECUTABLE="$GDB_ADDR2LINE")

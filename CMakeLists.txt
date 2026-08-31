@@ -10,6 +10,7 @@ option(DPC_ENABLE_WARNINGS "Enable compiler warnings" ON)
 option(DPC_ENABLE_GIMLI_ADAPTER "Build the Rust gimli/addr2line adapter" ON)
 option(DPC_ENABLE_IGA_ADAPTER "Build the in-process Intel Graphics Assembler adapter" OFF)
 option(DPC_ENABLE_GDB_INTEL_ADAPTER "Build the external GDB Intel addr2line adapter" OFF)
+option(DPC_ENABLE_PTI_ELF_PARSER_ADAPTER "Build the PTI GPU ELF parser adapter" OFF)
 set(DPC_GDB_ADDR2LINE_EXECUTABLE "" CACHE FILEPATH
   "Path to the manually built IntelGT-aware GDB Binutils addr2line executable")
 
@@ -41,6 +42,25 @@ endif()
 
 set(DPC_CAN_BUILD_GDB_INTEL_ADAPTER ${DPC_ENABLE_GDB_INTEL_ADAPTER})
 
+set(DPC_CAN_BUILD_PTI_ELF_PARSER_ADAPTER OFF)
+if(DPC_ENABLE_PTI_ELF_PARSER_ADAPTER)
+  set(DPC_PTI_GPU_ELF_PARSER_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src/adapters/pti/gpu_elf_parser)
+  add_library(dpc_pti_gpu_elf_parser STATIC
+    ${DPC_PTI_GPU_ELF_PARSER_DIR}/src/dwarf_state_machine.cpp
+    ${DPC_PTI_GPU_ELF_PARSER_DIR}/src/elf_parser.cpp
+    ${DPC_PTI_GPU_ELF_PARSER_DIR}/src/section_debug_abbrev.cpp
+    ${DPC_PTI_GPU_ELF_PARSER_DIR}/src/section_debug_info.cpp
+    ${DPC_PTI_GPU_ELF_PARSER_DIR}/src/section_debug_line.cpp
+  )
+  target_include_directories(dpc_pti_gpu_elf_parser
+    PUBLIC ${DPC_PTI_GPU_ELF_PARSER_DIR}/include
+    PRIVATE
+      ${DPC_PTI_GPU_ELF_PARSER_DIR}/src
+      ${DPC_PTI_GPU_ELF_PARSER_DIR}/utils
+  )
+  set(DPC_CAN_BUILD_PTI_ELF_PARSER_ADAPTER ON)
+endif()
+
 set(DPC_LIBRARY_SOURCES
   src/cli.cpp
   src/core.cpp
@@ -64,6 +84,12 @@ endif()
 if(DPC_CAN_BUILD_GDB_INTEL_ADAPTER)
   list(APPEND DPC_LIBRARY_SOURCES
     src/adapters/gdb/gdb_intel_adapter.cpp
+  )
+endif()
+
+if(DPC_CAN_BUILD_PTI_ELF_PARSER_ADAPTER)
+  list(APPEND DPC_LIBRARY_SOURCES
+    src/adapters/pti/pti_elf_parser_adapter.cpp
   )
 endif()
 
@@ -94,6 +120,11 @@ if(DPC_CAN_BUILD_GDB_INTEL_ADAPTER)
     target_compile_definitions(dwarf_parser_check_lib PRIVATE
       DPC_GDB_ADDR2LINE_DEFAULT_PATH="${DPC_GDB_ADDR2LINE_EXECUTABLE}")
   endif()
+endif()
+
+if(DPC_CAN_BUILD_PTI_ELF_PARSER_ADAPTER)
+  target_compile_definitions(dwarf_parser_check_lib PRIVATE DPC_HAVE_PTI_ELF_PARSER_ADAPTER=1)
+  target_link_libraries(dwarf_parser_check_lib PRIVATE dpc_pti_gpu_elf_parser)
 endif()
 
 if(DPC_CAN_BUILD_GIMLI_ADAPTER)
