@@ -177,7 +177,7 @@ def main() -> int:
                 raise ValueError(
                     f"native zebin for {kernel_name} is unavailable: {native_zebin}"
                 )
-            dwarf_locations = line_locations(native_zebin, offsets)
+            dwarf_locations = line_locations(native_zebin, offsets, kernel_name)
 
             marker_references = []
             for offset in offsets:

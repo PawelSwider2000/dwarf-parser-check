@@ -1,0 +1,20 @@
+{
+  "source_summary": "/home/pawelswi/trees/dwarf-parser-check/published-results/experiment_summary.json",
+  "adapter": "rust-gimli",
+  "generated_at_utc": "2026-09-01T11:35:36.499449+00:00",
+  "experiment_status": {
+    "total": 30,
+    "passed": 30,
+    "skipped": 0,
+    "failed": 0
+  },
+  "charts": [
+    "01_experiment_status.png",
+    "02_vtune_mismatch_heatmap.png",
+    "03_vtune_coverage_heatmap.png",
+    "04_unitrace_coverage_heatmap.png",
+    "05_vtune_unitrace_mismatches.png",
+    "06_vtune_mismatch_composition.png",
+    "07_unitrace_mismatch_composition.png"
+  ]
+}

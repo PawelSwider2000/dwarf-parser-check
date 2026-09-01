@@ -16,7 +16,9 @@ GDB_ADDR2LINE=${GDB_ADDR2LINE:-"$SCRIPT_DIR/../applications.debuggers.gdb-build-
 VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-}
+VTUNE_MAX_ATTEMPTS=${VTUNE_MAX_ATTEMPTS:-3}
 UNITRACE_BIN=${UNITRACE_BIN:-unitrace}
+UNITRACE_MAX_ATTEMPTS=${UNITRACE_MAX_ATTEMPTS:-3}
 TOOL=${TOOL:-both}
 ADAPTERS=${ADAPTERS:-rust-gimli}
 CLEAN_RESULTS=false
@@ -350,7 +352,9 @@ workload_build() {
     rm -rf "$UNITRACE_SHADER_DUMP_DIR"
     mkdir -p "$UNITRACE_SHADER_DUMP_DIR"
     log "workload build: writing AOT unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
-    IGC_ShaderDumpEnable=1 IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
+    local unitrace_shader_dump_dir_abs
+    unitrace_shader_dump_dir_abs=$(cd "$UNITRACE_SHADER_DUMP_DIR" && pwd -P)
+    IGC_ShaderDumpEnable=1 IGC_DumpToCustomDir="$unitrace_shader_dump_dir_abs" \
       cmake --build "$WORKLOAD_BUILD_DIR" --clean-first
   else
     cmake --build "$WORKLOAD_BUILD_DIR"
@@ -378,15 +382,13 @@ workload_execute() {
 
 vtune_collect() {
   require_workload_binary
+  [[ "$VTUNE_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || \
+    die "VTUNE_MAX_ATTEMPTS must be a positive integer: $VTUNE_MAX_ATTEMPTS"
   local ptrace_scope_file=/proc/sys/kernel/yama/ptrace_scope
   if [[ -r "$ptrace_scope_file" ]] && [[ $(<"$ptrace_scope_file") != 0 ]]; then
     die "VTune profiling requires unrestricted ptrace access. Run: sudo sysctl -w kernel.yama.ptrace_scope=0"
   fi
 
-  if [[ -e "$VTUNE_RESULT_DIR" ]]; then
-    log "run: removing previous VTune result: $VTUNE_RESULT_DIR"
-    rm -rf "$VTUNE_RESULT_DIR"
-  fi
   mkdir -p "$(dirname "$KERNEL_DEBUG_JSON")"
 
   local vtune_args=(
@@ -400,17 +402,33 @@ vtune_collect() {
   fi
   vtune_args+=(-- "$BIN_PATH" "$KERNEL_DEBUG_JSON")
 
-  log "run: collecting VTune samples into $VTUNE_RESULT_DIR"
-  ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "$VTUNE_BIN" "${vtune_args[@]}"
-  log "run: VTune result: $VTUNE_RESULT_DIR"
+  local attempt
+  for ((attempt = 1; attempt <= VTUNE_MAX_ATTEMPTS; ++attempt)); do
+    if [[ -e "$VTUNE_RESULT_DIR" ]]; then
+      log "run: removing previous VTune result: $VTUNE_RESULT_DIR"
+      rm -rf "$VTUNE_RESULT_DIR"
+    fi
+    log "run: collecting VTune samples into $VTUNE_RESULT_DIR (attempt $attempt/$VTUNE_MAX_ATTEMPTS)"
+    if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "$VTUNE_BIN" "${vtune_args[@]}"; then
+      log "run: VTune result: $VTUNE_RESULT_DIR"
+      return 0
+    fi
+    log "run: VTune collection failed"
+  done
+  die "VTune collection failed after $VTUNE_MAX_ATTEMPTS attempts; check GPU availability and the VTune output above"
+}
+
+unitrace_has_stall_samples() {
+  local metrics_file
+  metrics_file=$(find "$UNITRACE_RESULT_DIR" -type f -name 'metrics_*.csv' -size +1c -print -quit)
+  [[ -n "$metrics_file" ]] || return 1
+  awk 'NR > 1 && NF { found = 1; exit } END { exit !found }' "$metrics_file"
 }
 
 unitrace_collect() {
   require_workload_binary
-  if [[ -e "$UNITRACE_RESULT_DIR" ]]; then
-    log "run: removing previous unitrace result: $UNITRACE_RESULT_DIR"
-    rm -rf "$UNITRACE_RESULT_DIR"
-  fi
+  [[ "$UNITRACE_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || \
+    die "UNITRACE_MAX_ATTEMPTS must be a positive integer: $UNITRACE_MAX_ATTEMPTS"
   if [[ "$DEVICE_CODE" == jit ]] && [[ -e "$UNITRACE_SHADER_DUMP_DIR" ]]; then
     log "run: removing previous unitrace shader dump: $UNITRACE_SHADER_DUMP_DIR"
     rm -rf "$UNITRACE_SHADER_DUMP_DIR"
@@ -423,21 +441,38 @@ unitrace_collect() {
     die "AOT unitrace collection requires an IGC shader dump; run 'dwarf-check build' with --tool unitrace first"
   fi
 
-  log "run: collecting unitrace stall samples into $UNITRACE_RESULT_DIR"
-  if [[ "$DEVICE_CODE" == jit ]]; then
-    log "run: writing unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
-    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-      IGC_ShaderDumpEnable=1 \
-      IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
-      "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
-      "$BIN_PATH" "$KERNEL_DEBUG_JSON"
-  else
-    log "run: using AOT unitrace shader dump from $UNITRACE_SHADER_DUMP_DIR"
-    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-      "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
-      "$BIN_PATH" "$KERNEL_DEBUG_JSON"
-  fi
-  log "run: unitrace result: $UNITRACE_RESULT_DIR"
+  local attempt
+  for ((attempt = 1; attempt <= UNITRACE_MAX_ATTEMPTS; ++attempt)); do
+    if [[ -e "$UNITRACE_RESULT_DIR" ]]; then
+      log "run: removing previous unitrace result: $UNITRACE_RESULT_DIR"
+      rm -rf "$UNITRACE_RESULT_DIR"
+    fi
+    log "run: collecting unitrace stall samples into $UNITRACE_RESULT_DIR (attempt $attempt/$UNITRACE_MAX_ATTEMPTS)"
+    local unitrace_succeeded=false
+    if [[ "$DEVICE_CODE" == jit ]]; then
+      log "run: writing unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
+      if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
+        IGC_ShaderDumpEnable=1 \
+        IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
+        "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
+        "$BIN_PATH" "$KERNEL_DEBUG_JSON"; then
+        unitrace_succeeded=true
+      fi
+    else
+      log "run: using AOT unitrace shader dump from $UNITRACE_SHADER_DUMP_DIR"
+      if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
+        "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
+        "$BIN_PATH" "$KERNEL_DEBUG_JSON"; then
+        unitrace_succeeded=true
+      fi
+    fi
+    if [[ "$unitrace_succeeded" == true ]] && unitrace_has_stall_samples; then
+      log "run: unitrace result: $UNITRACE_RESULT_DIR"
+      return 0
+    fi
+    log "run: Unitace did not produce populated stall-sampling metrics"
+  done
+  die "Unitace stall sampling failed after $UNITRACE_MAX_ATTEMPTS attempts; check GPU availability and the Unitace output above"
 }
 
 collect_selected_tools() {

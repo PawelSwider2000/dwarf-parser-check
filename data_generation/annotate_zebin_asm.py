@@ -11,10 +11,18 @@ variable-location metadata, not source lines.
 """
 
 import argparse
+import bisect
 import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from correlate_vtune_report import (
+    compilation_directories,
+    decoded_lines_from_block,
+    kernel_text_sections,
+    split_by_cu,
+)
 
 
 IP_MARKER = re.compile(r"^/\* \[([0-9A-Fa-f]{8})\] \*/")
@@ -70,31 +78,11 @@ def instruction_offsets(assembly: Path) -> tuple[list[int], int]:
     return offsets, next_offset
 
 
-def decode(value: bytes) -> str:
-    return value.decode("utf-8", errors="replace")
-
-
-def source_path(cu, program, file_index: int) -> str:
-    file_entries = program["file_entry"]
-    if file_index <= 0 or file_index > len(file_entries):
-        return ""
-    file_entry = file_entries[file_index - 1]
-    path = Path(decode(file_entry.name))
-    if path.is_absolute():
-        return str(path)
-
-    directories = program["include_directory"]
-    directory = Path()
-    if file_entry.dir_index:
-        directory = Path(decode(directories[file_entry.dir_index - 1]))
-    else:
-        attribute = cu.get_top_DIE().attributes.get("DW_AT_comp_dir")
-        if attribute is not None:
-            directory = Path(decode(attribute.value))
-    return str(directory / path)
-
-
-def line_locations(zebin: Path, instruction_ips: list[int]) -> dict[int, SourceLocation]:
+def line_locations(
+    zebin: Path,
+    instruction_ips: list[int],
+    kernel_name: str,
+) -> dict[int, SourceLocation]:
     try:
         from elftools.elf.elffile import ELFFile
     except ImportError as error:
@@ -105,54 +93,44 @@ def line_locations(zebin: Path, instruction_ips: list[int]) -> dict[int, SourceL
         for section in (".debug_line", ".debug_loc"):
             if elf.get_section_by_name(section) is None:
                 raise ValueError(f"{zebin} does not contain {section}")
-        dwarf = elf.get_dwarf_info(relocate_dwarf_sections=False)
-        candidates: list[tuple[int, list[tuple[int, int, list[tuple[int, SourceLocation]]]]]] = []
-        for cu in dwarf.iter_CUs():
-            program = dwarf.line_program_for_CU(cu)
-            sequences: list[tuple[int, int, list[tuple[int, SourceLocation]]]] = []
-            entries: list[tuple[int, SourceLocation]] = []
-            for entry in program.get_entries():
-                state = entry.state
-                if state is None:
-                    continue
-                if state.end_sequence:
-                    if entries:
-                        sequences.append((entries[0][0], state.address, entries))
-                    entries = []
-                    continue
-                if not state.line:
-                    continue
-                path = source_path(cu, program, state.file)
-                if path:
-                    entries.append((state.address, SourceLocation(path, state.line)))
-            if sequences:
-                score = sum(
-                    1
-                    for ip in instruction_ips
-                    if any(start <= ip < end for start, end, _ in sequences)
-                )
-                candidates.append((score, sequences))
+    readelf = "readelf"
+    sections = kernel_text_sections(readelf, zebin)
+    try:
+        section_index = next(
+            index for index, (name, _, _) in enumerate(sections) if name == kernel_name
+        )
+    except StopIteration as error:
+        raise ValueError(f"no executable .text section found for kernel {kernel_name}") from error
 
-    if not candidates:
-        raise ValueError(f"no DWARF source locations found in {zebin}")
-    _, sequences = max(candidates, key=lambda candidate: candidate[0])
+    cu_blocks = split_by_cu(readelf, zebin)
+    compilation_dirs = compilation_directories(readelf, zebin)
+    fallback_compilation_dir = next(
+        (directory for directory in compilation_dirs if directory is not None), None
+    )
+    if section_index >= len(cu_blocks):
+        raise ValueError(f"no DWARF CU found for kernel {kernel_name} at section index {section_index}")
+    compilation_dir = compilation_dirs[section_index] if section_index < len(compilation_dirs) else None
+    if compilation_dir is None:
+        compilation_dir = fallback_compilation_dir
+    if compilation_dir is None:
+        raise ValueError(f"no DWARF compilation directory found for kernel {kernel_name}")
+
+    line_addresses, raw_locations = decoded_lines_from_block(
+        cu_blocks[section_index], compilation_dir, kernel_name
+    )
     locations: dict[int, SourceLocation] = {}
     for instruction_ip in instruction_ips:
-        for start, end, entries in sequences:
-            if not start <= instruction_ip < end:
-                continue
-            current = next(
-                (location for address, location in reversed(entries) if address <= instruction_ip),
-                None,
-            )
-            if current is not None:
-                locations[instruction_ip] = current
-            break
+        index = bisect.bisect_right(line_addresses, instruction_ip) - 1
+        if index < 0:
+            continue
+        raw_location = raw_locations[index]
+        if raw_location is not None:
+            locations[instruction_ip] = SourceLocation(*raw_location)
     return locations
 
 
 def source_text(location: SourceLocation, enabled: bool) -> str:
-    if not enabled:
+    if not enabled or location.line <= 0:
         return ""
     try:
         return Path(location.file).read_text(encoding="utf-8").splitlines()[location.line - 1].strip()
@@ -218,7 +196,7 @@ def main() -> int:
                 raise ValueError(
                     f"assembly ends at {end_offset:#x}, beyond {section} size {elf_section.data_size:#x}"
                 )
-        locations = line_locations(zebin, offsets)
+        locations = line_locations(zebin, offsets, section.removeprefix(".text."))
         output.parent.mkdir(parents=True, exist_ok=True)
         instructions, marked = annotate(
             assembly, output, locations, include_source_text=not arguments.no_source_text

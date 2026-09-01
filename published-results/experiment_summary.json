@@ -1,0 +1,2414 @@
+{
+  "summary": {
+    "total": 30,
+    "passed": 30,
+    "skipped": 0,
+    "failed": 0
+  },
+  "adapters": [
+    "rust-gimli",
+    "pti-elf-parser"
+  ],
+  "experiments": [
+    {
+      "name": "gemm/debug=g/opt=O0/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5068,
+              "matches": 5068,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5068,
+              "mapped_ips": 5068,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5014,
+              "matches": 5014,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5015,
+              "mapped_ips": 5014,
+              "unmapped_ips": 1
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5068,
+              "matches": 5068,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5068,
+              "mapped_ips": 5068,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5014,
+              "matches": 5014,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5015,
+              "mapped_ips": 5014,
+              "unmapped_ips": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "gemm/debug=g/opt=O0/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2495,
+              "matches": 2495,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2495,
+              "mapped_ips": 2495,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2353,
+              "matches": 2353,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2354,
+              "mapped_ips": 2353,
+              "unmapped_ips": 1
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2495,
+              "matches": 2495,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2495,
+              "mapped_ips": 2495,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2353,
+              "matches": 2353,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2354,
+              "mapped_ips": 2353,
+              "unmapped_ips": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "gemm/debug=g/opt=O1/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 3,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 63,
+              "file_mismatches": 0,
+              "line_mismatches": 3,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 3,
+            "summary": {
+              "compared_offsets": 54,
+              "matches": 51,
+              "file_mismatches": 0,
+              "line_mismatches": 3,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 54,
+              "mapped_ips": 54,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 54,
+              "matches": 54,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 54,
+              "mapped_ips": 54,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "gemm/debug=g/opt=O1/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 3,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 63,
+              "file_mismatches": 0,
+              "line_mismatches": 3,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 3,
+            "summary": {
+              "compared_offsets": 53,
+              "matches": 50,
+              "file_mismatches": 0,
+              "line_mismatches": 3,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 53,
+              "mapped_ips": 53,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 53,
+              "matches": 53,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 53,
+              "mapped_ips": 53,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "gemm/debug=g/opt=O2/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 54,
+              "matches": 54,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 54,
+              "mapped_ips": 54,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 54,
+              "matches": 54,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 54,
+              "mapped_ips": 54,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "gemm/debug=g/opt=O2/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 53,
+              "matches": 53,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 53,
+              "mapped_ips": 53,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 66,
+              "matches": 66,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 66,
+              "mapped_ips": 66,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 53,
+              "matches": 53,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 53,
+              "mapped_ips": 53,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O0/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1933,
+              "matches": 1933,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1933,
+              "mapped_ips": 1933,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1864,
+              "matches": 1864,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6084,
+              "mapped_ips": 1864,
+              "unmapped_ips": 4220
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1933,
+              "matches": 1933,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1933,
+              "mapped_ips": 1933,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1864,
+              "matches": 1864,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6084,
+              "mapped_ips": 1864,
+              "unmapped_ips": 4220
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O0/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 9343,
+              "matches": 9343,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 9343,
+              "mapped_ips": 9343,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 9002,
+              "matches": 9002,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 9006,
+              "mapped_ips": 9002,
+              "unmapped_ips": 4
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 9343,
+              "matches": 9343,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 9343,
+              "mapped_ips": 9343,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 9002,
+              "matches": 9002,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 9006,
+              "mapped_ips": 9002,
+              "unmapped_ips": 4
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O1/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 321,
+              "matches": 321,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 321,
+              "mapped_ips": 321,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 277,
+              "matches": 277,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 277,
+              "mapped_ips": 277,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 321,
+              "matches": 321,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 321,
+              "mapped_ips": 321,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 277,
+              "matches": 277,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 277,
+              "mapped_ips": 277,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O1/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 321,
+              "matches": 321,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 321,
+              "mapped_ips": 321,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 277,
+              "matches": 277,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 277,
+              "mapped_ips": 277,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 321,
+              "matches": 321,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 321,
+              "mapped_ips": 321,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 277,
+              "matches": 277,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 277,
+              "mapped_ips": 277,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O2/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1200,
+              "matches": 1200,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1200,
+              "mapped_ips": 1200,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1156,
+              "matches": 1156,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1156,
+              "mapped_ips": 1156,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1200,
+              "matches": 1200,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1200,
+              "mapped_ips": 1200,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1156,
+              "matches": 1156,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1156,
+              "mapped_ips": 1156,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "control_flow/debug=g/opt=O2/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1200,
+              "matches": 1200,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1200,
+              "mapped_ips": 1200,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1156,
+              "matches": 1156,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1156,
+              "mapped_ips": 1156,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1200,
+              "matches": 1200,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1200,
+              "mapped_ips": 1200,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1156,
+              "matches": 1156,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1156,
+              "mapped_ips": 1156,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O0/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1297,
+              "matches": 1297,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1297,
+              "mapped_ips": 1297,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 150,
+              "matches": 150,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1492,
+              "mapped_ips": 150,
+              "unmapped_ips": 1342
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1297,
+              "matches": 1297,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1297,
+              "mapped_ips": 1297,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 150,
+              "matches": 150,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1492,
+              "mapped_ips": 150,
+              "unmapped_ips": 1342
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O0/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6814,
+              "matches": 6814,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6814,
+              "mapped_ips": 6814,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1080,
+              "matches": 1080,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1082,
+              "mapped_ips": 1080,
+              "unmapped_ips": 2
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6814,
+              "matches": 6814,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6814,
+              "mapped_ips": 6814,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1080,
+              "matches": 1080,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1082,
+              "mapped_ips": 1080,
+              "unmapped_ips": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O1/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 16,
+              "matches": 16,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 16,
+              "mapped_ips": 16,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 16,
+              "matches": 16,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 16,
+              "mapped_ips": 16,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O1/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 7,
+              "matches": 7,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 7,
+              "mapped_ips": 7,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 7,
+              "matches": 7,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 7,
+              "mapped_ips": 7,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O2/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10,
+              "matches": 10,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10,
+              "mapped_ips": 10,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10,
+              "matches": 10,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10,
+              "mapped_ips": 10,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile/debug=g/opt=O2/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10,
+              "matches": 10,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10,
+              "mapped_ips": 10,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 128,
+              "matches": 128,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 128,
+              "mapped_ips": 128,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10,
+              "matches": 10,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10,
+              "mapped_ips": 10,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O0/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1044,
+              "matches": 1044,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1044,
+              "mapped_ips": 1044,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 123,
+              "matches": 123,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1135,
+              "mapped_ips": 123,
+              "unmapped_ips": 1012
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 1044,
+              "matches": 1044,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1044,
+              "mapped_ips": 1044,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 123,
+              "matches": 123,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 1135,
+              "mapped_ips": 123,
+              "unmapped_ips": 1012
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O0/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 4608,
+              "matches": 4608,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 4608,
+              "mapped_ips": 4608,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 718,
+              "matches": 718,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 720,
+              "mapped_ips": 718,
+              "unmapped_ips": 2
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 4608,
+              "matches": 4608,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 4608,
+              "mapped_ips": 4608,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 718,
+              "matches": 718,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 720,
+              "mapped_ips": 718,
+              "unmapped_ips": 2
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O1/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6,
+              "matches": 6,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6,
+              "mapped_ips": 6,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6,
+              "matches": 6,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 6,
+              "mapped_ips": 6,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O1/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 8,
+              "matches": 8,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 8,
+              "mapped_ips": 8,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 8,
+              "matches": 8,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 8,
+              "mapped_ips": 8,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O2/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5,
+              "matches": 5,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5,
+              "mapped_ips": 5,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 5,
+              "matches": 5,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 5,
+              "mapped_ips": 5,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "inline_chain/debug=g/opt=O2/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 7,
+              "matches": 7,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 7,
+              "mapped_ips": 7,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 80,
+              "matches": 80,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 80,
+              "mapped_ips": 80,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 7,
+              "matches": 7,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 7,
+              "mapped_ips": 7,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O0/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 14402,
+              "matches": 14402,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 14402,
+              "mapped_ips": 14402,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6131,
+              "matches": 6131,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 13233,
+              "mapped_ips": 6131,
+              "unmapped_ips": 7102
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 14402,
+              "matches": 14402,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 14402,
+              "mapped_ips": 14402,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 6131,
+              "matches": 6131,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 13233,
+              "mapped_ips": 6131,
+              "unmapped_ips": 7102
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O0/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 16614,
+              "matches": 16614,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 16614,
+              "mapped_ips": 16614,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 8240,
+              "matches": 8240,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 8244,
+              "mapped_ips": 8240,
+              "unmapped_ips": 4
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 16614,
+              "matches": 16614,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 16614,
+              "mapped_ips": 16614,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 8240,
+              "matches": 8240,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 8244,
+              "mapped_ips": 8240,
+              "unmapped_ips": 4
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O1/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 21,
+            "summary": {
+              "compared_offsets": 2869,
+              "matches": 2848,
+              "file_mismatches": 0,
+              "line_mismatches": 21,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2869,
+              "mapped_ips": 2869,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 640,
+              "matches": 640,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 640,
+              "mapped_ips": 640,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2869,
+              "matches": 2869,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2869,
+              "mapped_ips": 2869,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 640,
+              "matches": 640,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 640,
+              "mapped_ips": 640,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O1/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 21,
+            "summary": {
+              "compared_offsets": 2869,
+              "matches": 2848,
+              "file_mismatches": 0,
+              "line_mismatches": 21,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2869,
+              "mapped_ips": 2869,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 1,
+            "summary": {
+              "compared_offsets": 640,
+              "matches": 639,
+              "file_mismatches": 0,
+              "line_mismatches": 1,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 640,
+              "mapped_ips": 640,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 2869,
+              "matches": 2869,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 2869,
+              "mapped_ips": 2869,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 640,
+              "matches": 640,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 640,
+              "mapped_ips": 640,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O2/device-code=jit",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 20,
+            "summary": {
+              "compared_offsets": 10619,
+              "matches": 10599,
+              "file_mismatches": 0,
+              "line_mismatches": 20,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10619,
+              "mapped_ips": 10619,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 3922,
+              "matches": 3922,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 3922,
+              "mapped_ips": 3922,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10619,
+              "matches": 10619,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10619,
+              "mapped_ips": 10619,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 3922,
+              "matches": 3922,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 3922,
+              "mapped_ips": 3922,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "multifile_inline_chain/debug=g/opt=O2/device-code=aot/device-target=bmg,pvc",
+      "status": "PASS",
+      "adapter_results": {
+        "rust-gimli": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 20,
+            "summary": {
+              "compared_offsets": 10619,
+              "matches": 10599,
+              "file_mismatches": 0,
+              "line_mismatches": 20,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10619,
+              "mapped_ips": 10619,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 3982,
+              "matches": 3982,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 3982,
+              "mapped_ips": 3982,
+              "unmapped_ips": 0
+            }
+          }
+        },
+        "pti-elf-parser": {
+          "status": "PASS",
+          "comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 10619,
+              "matches": 10619,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 10619,
+              "mapped_ips": 10619,
+              "unmapped_ips": 0
+            }
+          },
+          "unitrace_comparison": {
+            "mismatch_count": 0,
+            "summary": {
+              "compared_offsets": 3982,
+              "matches": 3982,
+              "file_mismatches": 0,
+              "line_mismatches": 0,
+              "column_mismatches": 0,
+              "missing_in_reference": 0,
+              "missing_in_backend": 0
+            },
+            "coverage": {
+              "sampled_ips": 3982,
+              "mapped_ips": 3982,
+              "unmapped_ips": 0
+            }
+          }
+        }
+      }
+    }
+  ]
+}

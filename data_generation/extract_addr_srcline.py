@@ -279,8 +279,9 @@ def report_instruction_addresses(path: Path) -> set[int]:
     """Return instruction addresses from a VTune CSV report.
 
     VTune emits a warning before the CSV header on some versions, so find the
-    header in the same way as correlate_vtune_report.py. An address identifies
-    a reported instruction even when VTune did not export a source line.
+    header in the same way as correlate_vtune_report.py. When the report
+    provides an Assembly column, exclude block headers and illegal disassembly
+    rows; address-only reports retain every parsable address.
     """
     with path.open(encoding="utf-8", errors="replace", newline="") as stream:
         header = next(
@@ -293,6 +294,11 @@ def report_instruction_addresses(path: Path) -> set[int]:
 
         addresses = set()
         for row in reader:
+            assembly = row.get("Assembly", "").strip()
+            if "Assembly" in reader.fieldnames and (
+                not assembly or assembly.startswith("Block ") or assembly == "illegal"
+            ):
+                continue
             try:
                 addresses.add(int(row["Address"], 16))
             except (KeyError, TypeError, ValueError):

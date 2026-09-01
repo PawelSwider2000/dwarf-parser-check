@@ -84,7 +84,8 @@ for example, `aot-bmg-pvc-g-O2`. This keeps runtime-JIT and AOT artifacts separa
 `WORKLOAD_BUILD_DIR`, `WORKLOAD_RESULTS_DIR`, `KERNEL_DEBUG_JSON`,
 `VTUNE_RESULT_DIR`, and `VTUNE_REFERENCE_CSV` remain usable as environment
 overrides. `BUILD_TYPE`, `CMAKE_GENERATOR`, `GDB_ADDR2LINE`, `VTUNE_BIN`,
-`VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, and `READELF_BIN` are also
+`VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, `VTUNE_MAX_ATTEMPTS`,
+`UNITRACE_MAX_ATTEMPTS`, and `READELF_BIN` are also
 environment-controlled.
 
 By default, analysis emits an address report for every kernel captured in
@@ -114,7 +115,13 @@ Run the two modes as separate workflows:
 that option for Intel SYCL device targets, so use `--debug g` for device DWARF.
 
 `run` requires an already-built workload binary and unrestricted ptrace access
-for VTune. `analyze` requires both an existing VTune result and manifest.
+for VTune. `analyze` requires both an existing VTune result and manifest. VTune
+collection retries up to `VTUNE_MAX_ATTEMPTS=3` times after transient failures.
+Unitace stall collection requires the Xe observation policy to be unrestricted:
+`sudo sysctl -w dev.xe.observation_paranoid=0`. The runner accepts a Unitace
+capture only when it contains populated `metrics_*.csv` data and retries it up
+to `UNITRACE_MAX_ATTEMPTS=3` times to recover from transient metric-streamer
+read failures.
 
 ## Experiment Matrix
 
@@ -124,7 +131,9 @@ experiment builds a BMG+PVC fat binary, while mode-specific artifact paths keep
 its build and result files separate from the JIT experiment. Every experiment
 builds the selected workload, runs it once under VTune, generates the reference,
 and compares the selected adapters. Set `AOT_TARGETS=bmg` or `AOT_TARGETS=pvc`
-to restrict the AOT target list.
+to restrict the AOT target list. For a smaller matrix, set `WORKLOADS`,
+`OPT_LEVELS`, or `DEVICE_CODE_MODES`; for example,
+`WORKLOADS=gemm OPT_LEVELS=O0 DEVICE_CODE_MODES=jit ./run_experiments.sh`.
 
 Pass `--clean-results` to `dwarf-check` before `run` or `all` to remove the
 selected configuration's result directory before generating new artifacts.
@@ -133,12 +142,12 @@ entry. The experiment summary distinguishes `SKIP` (VTune provided no source
 locations to compare) from `FAIL`.
 
 After the matrix completes, `artifacts/experiment_summary.json` contains one
-record per experiment with its name, `PASS` or `FAIL` status, the VTune/DWARF
-aggregate in `comparison`, and the unitrace/DWARF aggregate in
-`unitrace_comparison`. Each aggregate also includes `coverage` with sampled,
-DWARF-mapped, and unmapped IP counts. `PASS` and `SKIP` status remain based on
-the VTune/DWARF comparison. Set `ARTIFACT_DIR` or `EXPERIMENT_SUMMARY_FILE` to
-choose a different location.
+record per experiment. `adapters` identifies the requested adapters, while each
+record's `adapter_results` object stores a separate `PASS`, `SKIP`, or `FAIL`
+status plus VTune/DWARF and Unitace/DWARF aggregates for each adapter. Each
+aggregate includes `coverage` with sampled, DWARF-mapped, and unmapped IP
+counts. The record-level status summarizes its adapter statuses. Set
+`ARTIFACT_DIR` or `EXPERIMENT_SUMMARY_FILE` to choose a different location.
 
 ## Charts
 
@@ -152,6 +161,7 @@ python3 data_generation/plot_experiment_summary.py \
 
 The default output directory is `artifacts/charts`. Every figure title, the
 generated `chart_metadata.json`, and the chart README identify the adapter.
+Multi-adapter summaries require `--adapter` so each chart shows one adapter.
 
 ## Output
 

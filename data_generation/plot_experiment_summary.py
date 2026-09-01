@@ -58,6 +58,13 @@ class Experiment:
         return f"{self.workload.replace('_', ' ')} | {self.configuration_label}"
 
 
+@dataclass(frozen=True)
+class ExperimentGrid:
+    workloads: list[str]
+    configurations: list[tuple[str, str]]
+    rows: list[list[Experiment]]
+
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("summary", type=Path, help="experiment_summary.json input file")
@@ -73,7 +80,7 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def read_experiments(summary_path: Path) -> tuple[dict, list[Experiment]]:
+def read_experiments(summary_path: Path, adapter: str) -> tuple[dict, list[Experiment]]:
     document = json.loads(summary_path.read_text(encoding="utf-8"))
     if not isinstance(document.get("summary"), dict) or not isinstance(document.get("experiments"), list):
         raise ValueError("summary must contain object fields 'summary' and 'experiments'")
@@ -84,8 +91,18 @@ def read_experiments(summary_path: Path) -> tuple[dict, list[Experiment]]:
         match = EXPERIMENT_NAME.fullmatch(name)
         if match is None:
             raise ValueError(f"unrecognized experiment name: {name}")
-        comparison = record.get("comparison")
-        unitrace_comparison = record.get("unitrace_comparison")
+        adapter_results = record.get("adapter_results")
+        if isinstance(adapter_results, dict):
+            adapter_result = adapter_results.get(adapter)
+            if not isinstance(adapter_result, dict):
+                raise ValueError(f"{name} has no results for adapter '{adapter}'")
+            comparison = adapter_result.get("comparison")
+            unitrace_comparison = adapter_result.get("unitrace_comparison")
+            status = adapter_result.get("status", record.get("status", "UNKNOWN"))
+        else:
+            comparison = record.get("comparison")
+            unitrace_comparison = record.get("unitrace_comparison")
+            status = record.get("status", "UNKNOWN")
         if not isinstance(comparison, dict) or not isinstance(unitrace_comparison, dict):
             raise ValueError(f"{name} has no complete VTune and Unitace comparisons")
         experiments.append(
@@ -93,7 +110,7 @@ def read_experiments(summary_path: Path) -> tuple[dict, list[Experiment]]:
                 workload=match["workload"],
                 optimization=match["optimization"],
                 device_code=match["device_code"],
-                status=record.get("status", "UNKNOWN"),
+                status=status,
                 comparison=comparison,
                 unitrace_comparison=unitrace_comparison,
             )
@@ -166,20 +183,32 @@ def mismatch_label(comparison: dict) -> str:
     return " ".join(labels) if labels else "0"
 
 
-def experiment_grid(experiments: list[Experiment]) -> list[list[Experiment]]:
+def experiment_grid(experiments: list[Experiment]) -> ExperimentGrid:
     by_configuration = {(entry.workload, entry.device_code, entry.optimization): entry for entry in experiments}
+    workloads = [workload for workload in WORKLOAD_ORDER if any(entry.workload == workload for entry in experiments)]
+    configurations = [
+        configuration
+        for configuration in CONFIGURATION_ORDER
+        if any((entry.device_code, entry.optimization) == configuration for entry in experiments)
+    ]
+    if not workloads or not configurations:
+        raise ValueError("summary contains no experiment records")
     missing = [
         f"{workload}/{device_code}/{optimization}"
-        for workload in WORKLOAD_ORDER
-        for device_code, optimization in CONFIGURATION_ORDER
+        for workload in workloads
+        for device_code, optimization in configurations
         if (workload, device_code, optimization) not in by_configuration
     ]
     if missing:
-        raise ValueError("missing expected matrix entries: " + ", ".join(missing))
-    return [
-        [by_configuration[(workload, device_code, optimization)] for device_code, optimization in CONFIGURATION_ORDER]
-        for workload in WORKLOAD_ORDER
-    ]
+        raise ValueError("experiment matrix is incomplete: " + ", ".join(missing))
+    return ExperimentGrid(
+        workloads=workloads,
+        configurations=configurations,
+        rows=[
+            [by_configuration[(workload, device_code, optimization)] for device_code, optimization in configurations]
+            for workload in workloads
+        ],
+    )
 
 
 def plot_status(document: dict, adapter: str, output_dir: Path) -> None:
@@ -203,7 +232,7 @@ def plot_status(document: dict, adapter: str, output_dir: Path) -> None:
 
 
 def plot_heatmap(
-    grid: list[list[Experiment]],
+    grid: ExperimentGrid,
     adapter: str,
     output_dir: Path,
     filename: str,
@@ -213,14 +242,19 @@ def plot_heatmap(
     labeler=None,
     caption: str | None = None,
 ) -> None:
-    values = [[extractor(entry) for entry in row] for row in grid]
-    figure, axes = setup_figure(title, adapter, width=13, height=6)
+    values = [[extractor(entry) for entry in row] for row in grid.rows]
+    figure, axes = setup_figure(
+        title,
+        adapter,
+        width=max(8, len(grid.configurations) * 2),
+        height=max(4, len(grid.workloads) * 1.2 + 2),
+    )
     image = axes.imshow(values, aspect="auto", cmap=LinearSegmentedColormap.from_list("mapping", ["#f7fbff", "#6baed6", "#08519c"]))
-    axes.set_xticks(range(len(CONFIGURATION_ORDER)), [f"{mode.upper()}\n{optimization}" for mode, optimization in CONFIGURATION_ORDER])
-    axes.set_yticks(range(len(WORKLOAD_ORDER)), [workload.replace("_", " ") for workload in WORKLOAD_ORDER])
+    axes.set_xticks(range(len(grid.configurations)), [f"{mode.upper()}\n{optimization}" for mode, optimization in grid.configurations])
+    axes.set_yticks(range(len(grid.workloads)), [workload.replace("_", " ") for workload in grid.workloads])
     for row_index, row in enumerate(values):
         for column_index, value in enumerate(row):
-            entry = grid[row_index][column_index]
+            entry = grid.rows[row_index][column_index]
             label = labeler(entry, value) if labeler else f"{value:.1f}%" if scale_label.endswith("(%)") else str(value)
             color = "white" if image.norm(value) > 0.58 else "#202020"
             axes.text(column_index, row_index, label, ha="center", va="center", color=color, fontsize=9)
@@ -231,12 +265,12 @@ def plot_heatmap(
     write_figure(figure, output_dir, filename)
 
 
-def plot_mismatch_comparison(grid: list[list[Experiment]], adapter: str, output_dir: Path) -> None:
+def plot_mismatch_comparison(grid: ExperimentGrid, adapter: str, output_dir: Path) -> None:
     figure, axes = setup_figure("VTune and Unitace Mismatch Counts", adapter, width=15, height=14)
     labels = []
     vtune_values = []
     unitrace_values = []
-    for row in grid:
+    for row in grid.rows:
         for entry in row:
             labels.append(entry.chart_label)
             vtune_values.append(comparison_value(entry.comparison, "mismatch_count"))
@@ -255,7 +289,7 @@ def plot_mismatch_comparison(grid: list[list[Experiment]], adapter: str, output_
 
 
 def plot_mismatch_composition(
-    grid: list[list[Experiment]],
+    grid: ExperimentGrid,
     adapter: str,
     output_dir: Path,
     comparison_field: str,
@@ -264,9 +298,9 @@ def plot_mismatch_composition(
 ) -> None:
     figure, axes = setup_figure(f"{tool_name} Mismatch Composition", adapter, width=15, height=14)
     labels = []
-    cumulative = [0] * (len(WORKLOAD_ORDER) * len(CONFIGURATION_ORDER))
-    entries = [entry for row in grid for entry in row]
-    for row in grid:
+    entries = [entry for row in grid.rows for entry in row]
+    cumulative = [0] * len(entries)
+    for row in grid.rows:
         labels.extend(entry.chart_label for entry in row)
     positions = list(range(len(labels)))
     for field, label, color in MISMATCH_COMPONENTS:
@@ -314,10 +348,19 @@ def main() -> int:
         summary_path = arguments.summary.resolve()
         if not summary_path.is_file():
             raise ValueError(f"summary file not found: {summary_path}")
-        document, experiments = read_experiments(summary_path)
+        document = json.loads(summary_path.read_text(encoding="utf-8"))
+        if not isinstance(document.get("summary"), dict) or not isinstance(document.get("experiments"), list):
+            raise ValueError("summary must contain object fields 'summary' and 'experiments'")
         adapters = document.get("adapters")
-        inferred_adapter = ", ".join(adapters) if isinstance(adapters, list) and adapters else "rust-gimli"
-        adapter = arguments.adapter or inferred_adapter
+        if arguments.adapter:
+            adapter = arguments.adapter
+        elif isinstance(adapters, list) and len(adapters) == 1 and isinstance(adapters[0], str):
+            adapter = adapters[0]
+        elif isinstance(adapters, list) and len(adapters) > 1:
+            raise ValueError("summary contains multiple adapters; pass --adapter NAME")
+        else:
+            adapter = "rust-gimli"
+        document, experiments = read_experiments(summary_path, adapter)
         output_dir = (arguments.output_dir or summary_path.parent / "charts").resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         grid = experiment_grid(experiments)

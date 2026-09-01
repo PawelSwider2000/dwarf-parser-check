@@ -9,8 +9,8 @@ DWARF_CHECK=${DWARF_CHECK:-"$SCRIPT_DIR/dwarf-check.sh"}
 # ── Experiment matrix ──────────────────────────────────────────────────────────
 WORKLOADS=(${WORKLOADS:-gemm control_flow multifile inline_chain multifile_inline_chain})
 DEBUG_MODES=(g)
-OPT_LEVELS=(O0 O1 O2)
-DEVICE_CODE_MODES=(jit aot)
+OPT_LEVELS=(${OPT_LEVELS:-O0 O1 O2})
+DEVICE_CODE_MODES=(${DEVICE_CODE_MODES:-jit aot})
 
 # AOT builds produce one fat binary containing native images for each target.
 AOT_TARGETS=${AOT_TARGETS:-bmg,pvc}
@@ -42,19 +42,19 @@ write_experiment_record() {
   local name=$2
   local workload=$3
   local configuration=$4
+  local adapters=$5
   local result_dir="$ARTIFACT_DIR/results/$workload/$configuration"
-  local comparison_file="$result_dir/adapter_rust-gimli_vtune_comparison.json"
-  local unitrace_comparison_file="$result_dir/unitrace/adapter_rust-gimli_unitrace_comparison.json"
   local vtune_manifest="$result_dir/vtune_manifest.json"
   local unitrace_manifest="$result_dir/unitrace_manifest.json"
 
-  python3 - "$EXPERIMENT_RECORDS_FILE" "$status" "$name" "$comparison_file" "$unitrace_comparison_file" "$vtune_manifest" "$unitrace_manifest" <<'PY'
+  python3 - "$EXPERIMENT_RECORDS_FILE" "$status" "$name" "$result_dir" "$adapters" "$vtune_manifest" "$unitrace_manifest" <<'PY'
 import json
 import pathlib
 import sys
 
-records_path, status, name, vtune_comparison_path, unitrace_comparison_path, vtune_manifest_path, unitrace_manifest_path = sys.argv[1:]
-record = {"name": name, "status": status, "comparison": None, "unitrace_comparison": None}
+records_path, status, name, result_dir, adapters, vtune_manifest_path, unitrace_manifest_path = sys.argv[1:]
+adapter_names = [adapter.strip() for adapter in adapters.split(",") if adapter.strip()]
+record = {"name": name, "status": status, "adapter_results": {}}
 summary_keys = (
   "compared_offsets",
   "matches",
@@ -92,31 +92,53 @@ def collector_coverage(path_text):
   except (KeyError, OSError, ValueError, json.JSONDecodeError):
     return None
 
-def store_comparison(field, error_field, path_text, manifest_path):
+def store_comparison(adapter_record, field, error_field, path_text, manifest_path):
   path = pathlib.Path(path_text)
   if not path.is_file():
-    record[error_field] = f"comparison file not found: {path}"
+    adapter_record[error_field] = f"comparison file not found: {path}"
     return None
   try:
     aggregate, comparisons = aggregate_comparison(path)
     coverage = collector_coverage(manifest_path)
     if coverage is not None:
       aggregate["coverage"] = coverage
-    record[field] = aggregate
+    adapter_record[field] = aggregate
     return comparisons
   except (KeyError, OSError, ValueError, json.JSONDecodeError) as error:
-    record[error_field] = str(error)
+    adapter_record[error_field] = str(error)
     return None
 
-vtune_comparisons = store_comparison("comparison", "comparison_error", vtune_comparison_path, vtune_manifest_path)
-store_comparison("unitrace_comparison", "unitrace_comparison_error", unitrace_comparison_path, unitrace_manifest_path)
-if status == "PASS" and vtune_comparisons and all(
-    comparison.get("status") == "skipped" for comparison in vtune_comparisons
-):
+for adapter in adapter_names:
+  adapter_record = {"status": status, "comparison": None, "unitrace_comparison": None}
+  vtune_comparisons = store_comparison(
+      adapter_record,
+      "comparison",
+      "comparison_error",
+      pathlib.Path(result_dir) / f"adapter_{adapter}_vtune_comparison.json",
+      vtune_manifest_path,
+  )
+  store_comparison(
+      adapter_record,
+      "unitrace_comparison",
+      "unitrace_comparison_error",
+      pathlib.Path(result_dir) / "unitrace" / f"adapter_{adapter}_unitrace_comparison.json",
+      unitrace_manifest_path,
+  )
+  if status == "PASS":
+    if vtune_comparisons is None:
+      adapter_record["status"] = "FAIL"
+    elif all(comparison.get("status") == "skipped" for comparison in vtune_comparisons):
+      adapter_record["status"] = "SKIP"
+      adapter_record["skip_reasons"] = [
+          comparison.get("skip_reason", "") for comparison in vtune_comparisons
+      ]
+  record["adapter_results"][adapter] = adapter_record
+
+adapter_statuses = [adapter_record["status"] for adapter_record in record["adapter_results"].values()]
+if "FAIL" in adapter_statuses:
+  record["status"] = "FAIL"
+elif adapter_statuses and all(adapter_status == "SKIP" for adapter_status in adapter_statuses):
   record["status"] = "SKIP"
-  record["skip_reasons"] = [
-      comparison.get("skip_reason", "") for comparison in vtune_comparisons
-  ]
 
 with open(records_path, "a", encoding="utf-8") as records_file:
   records_file.write(json.dumps(record) + "\n")
@@ -139,7 +161,10 @@ summary = {
   "skipped": sum(record["status"] == "SKIP" for record in records),
   "failed": sum(record["status"] == "FAIL" for record in records),
 }
-summary_path.write_text(json.dumps({"summary": summary, "experiments": records}, indent=2) + "\n")
+adapters = list(records[0]["adapter_results"]) if records else []
+summary_path.write_text(
+  json.dumps({"summary": summary, "adapters": adapters, "experiments": records}, indent=2) + "\n"
+)
 PY
   log "summary file: $EXPERIMENT_SUMMARY_FILE"
 }
@@ -218,12 +243,12 @@ for workload in "${WORKLOADS[@]}"; do
 
         # shellcheck disable=SC2086
         if "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}"; then
-          experiment_status=$(write_experiment_record PASS "$label" "$workload" "$configuration")
+          experiment_status=$(write_experiment_record PASS "$label" "$workload" "$configuration" "$ADAPTERS")
           log "[$count/$total] $experiment_status: $label"
         else
           log "[$count/$total] FAIL: $label"
           failed+=("$label")
-          write_experiment_record FAIL "$label" "$workload" "$configuration" >/dev/null
+          write_experiment_record FAIL "$label" "$workload" "$configuration" "$ADAPTERS" >/dev/null
         fi
       done
     done

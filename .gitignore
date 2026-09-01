@@ -33,4 +33,5 @@ build-gdb-intel/
 #Python
 __pycache__/
 
-
+**/build/
+**/results/

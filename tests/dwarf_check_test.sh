@@ -45,9 +45,37 @@ output_dir="$temporary_dir/adapter_reports"
 adapter_arguments="$temporary_dir/adapter_arguments.txt"
 printf '{}\n' > "$manifest"
 
+vtune_instruction_report="$temporary_dir/vtune-instruction-report.csv"
+vtune_address_only_report="$temporary_dir/vtune-address-only-report.csv"
+printf 'Address,Assembly\n0x10,nop\n0x20,Block 1:\n0x30,illegal\n' > "$vtune_instruction_report"
+printf 'Address\n0x40\n0x50\n' > "$vtune_address_only_report"
+filtered_vtune_addresses=$(python3 - "$vtune_instruction_report" "$vtune_address_only_report" \
+  "$PROJECT_DIR/data_generation/extract_addr_srcline.py" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+instruction_report, address_only_report, module_path = map(Path, sys.argv[1:])
+sys.argv = [str(module_path)]
+spec = importlib.util.spec_from_file_location("extract_addr_srcline", module_path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+instruction_addresses = sorted(module.report_instruction_addresses(instruction_report))
+address_only_addresses = sorted(module.report_instruction_addresses(address_only_report))
+print(
+    ",".join(hex(address) for address in instruction_addresses)
+    + ";"
+    + ",".join(hex(address) for address in address_only_addresses)
+)
+PY
+)
+[[ "$filtered_vtune_addresses" == "0x10;0x40,0x50" ]] || \
+  fail "VTune instruction filtering did not exclude pseudo-instruction addresses"
+
 cat > "$temporary_dir/bin/vtune" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+application=()
 while [[ $# -gt 0 ]]; do
   if [[ $1 == -report-output ]]; then
     printf 'Address,Assembly\n0x0,nop\n' > "$2"
@@ -55,28 +83,44 @@ while [[ $# -gt 0 ]]; do
   fi
   if [[ $1 == -- ]]; then
     shift
-    exec "$@"
+    application=("$@")
+    break
   fi
   shift
 done
-exit 0
+if [[ -n ${DPC_TEST_VTUNE_ATTEMPTS:-} ]]; then
+  printf 'attempt\n' >> "$DPC_TEST_VTUNE_ATTEMPTS"
+  [[ $(wc -l < "$DPC_TEST_VTUNE_ATTEMPTS") -ge 2 ]] || exit 1
+fi
+exec "${application[@]}"
 EOF
 cat > "$temporary_dir/bin/unitrace" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+result_dir=
+application=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --result-dir)
+      result_dir=$2
       shift 2
       ;;
     --stall-sampling)
       shift
       ;;
     *)
-      exec "$@"
+      application=("$@")
+      break
       ;;
   esac
 done
+if [[ -n ${DPC_TEST_UNITRACE_ATTEMPTS:-} ]]; then
+  printf 'attempt\n' >> "$DPC_TEST_UNITRACE_ATTEMPTS"
+  [[ $(wc -l < "$DPC_TEST_UNITRACE_ATTEMPTS") -ge 2 ]] || exit 0
+fi
+mkdir -p "$result_dir/unitrace.test/metrics"
+printf 'Kernel,IP[Address]\ntest,0\n' > "$result_dir/unitrace.test/metrics/metrics_0.csv"
+exec "${application[@]}"
 EOF
 cat > "$temporary_dir/bin/python3" <<'EOF'
 #!/usr/bin/env bash
@@ -112,6 +156,38 @@ UNITRACE_BIN="$temporary_dir/bin/unitrace" \
 "$DWARF_CHECK" --tool unitrace --artifact-dir "$single_run_artifact_dir" run
 
 [[ $(wc -l < "$single_run_log") -eq 1 ]] || fail "run did not execute the workload under unitrace"
+
+retry_artifact_dir="$temporary_dir/retry-run-artifacts"
+retry_binary="$retry_artifact_dir/build/gemm/jit-g-O0/bin/gemm"
+retry_log="$temporary_dir/retry-workload-runs.log"
+unitrace_attempts="$temporary_dir/unitrace-attempts.log"
+mkdir -p "$(dirname "$retry_binary")"
+cp "$single_run_binary" "$retry_binary"
+
+DPC_TEST_WORKLOAD_LOG="$retry_log" \
+DPC_TEST_UNITRACE_ATTEMPTS="$unitrace_attempts" \
+UNITRACE_MAX_ATTEMPTS=2 \
+UNITRACE_BIN="$temporary_dir/bin/unitrace" \
+"$DWARF_CHECK" --tool unitrace --artifact-dir "$retry_artifact_dir" run
+
+[[ $(wc -l < "$unitrace_attempts") -eq 2 ]] || fail "unitrace did not retry an empty metrics result"
+[[ $(wc -l < "$retry_log") -eq 1 ]] || fail "unitrace retry did not run the workload"
+
+vtune_retry_artifact_dir="$temporary_dir/vtune-retry-run-artifacts"
+vtune_retry_binary="$vtune_retry_artifact_dir/build/gemm/jit-g-O0/bin/gemm"
+vtune_retry_log="$temporary_dir/vtune-retry-workload-runs.log"
+vtune_attempts="$temporary_dir/vtune-attempts.log"
+mkdir -p "$(dirname "$vtune_retry_binary")"
+cp "$single_run_binary" "$vtune_retry_binary"
+
+DPC_TEST_WORKLOAD_LOG="$vtune_retry_log" \
+DPC_TEST_VTUNE_ATTEMPTS="$vtune_attempts" \
+VTUNE_MAX_ATTEMPTS=2 \
+VTUNE_BIN="$temporary_dir/bin/vtune" \
+"$DWARF_CHECK" --tool vtune --artifact-dir "$vtune_retry_artifact_dir" run
+
+[[ $(wc -l < "$vtune_attempts") -eq 2 ]] || fail "VTune did not retry a failed collection"
+[[ $(wc -l < "$vtune_retry_log") -eq 1 ]] || fail "VTune retry did not run the workload"
 
 DPC_TEST_ADAPTER_ARGUMENTS="$adapter_arguments" \
 PATH="$temporary_dir/bin:$PATH" \
@@ -174,9 +250,15 @@ mkdir -p "$output_dir"
 cat > "$output_dir/adapter_rust-gimli_vtune_comparison.json" <<'JSON'
 {"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"skipped","skip_reason":"VTune reference contains no source locations","mismatch_count":0,"summary":{"compared_offsets":0,"matches":0,"file_mismatches":0,"line_mismatches":0,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
 JSON
+cat > "$output_dir/adapter_pti-elf-parser_vtune_comparison.json" <<'JSON'
+{"comparisons":[{"backend":"pti-elf-parser","kernel":"test-kernel","status":"skipped","skip_reason":"VTune reference contains no source locations","mismatch_count":0,"summary":{"compared_offsets":0,"matches":0,"file_mismatches":0,"line_mismatches":0,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
+JSON
 mkdir -p "$output_dir/unitrace"
 cat > "$output_dir/unitrace/adapter_rust-gimli_unitrace_comparison.json" <<'JSON'
 {"comparisons":[{"backend":"rust-gimli","kernel":"test-kernel","status":"compared","mismatch_count":2,"summary":{"compared_offsets":3,"matches":1,"file_mismatches":1,"line_mismatches":1,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
+JSON
+cat > "$output_dir/unitrace/adapter_pti-elf-parser_unitrace_comparison.json" <<'JSON'
+{"comparisons":[{"backend":"pti-elf-parser","kernel":"test-kernel","status":"compared","mismatch_count":4,"summary":{"compared_offsets":5,"matches":1,"file_mismatches":2,"line_mismatches":2,"column_mismatches":0,"missing_in_reference":0,"missing_in_backend":0}}]}
 JSON
 cat > "$output_dir/vtune_manifest.json" <<'JSON'
 {"kernels":[{"sampled_ip_count":8,"mapped_ip_count":5,"unmapped_ip_count":3}]}
@@ -189,6 +271,7 @@ chmod +x "$fake_dwarf_check"
 
 DPC_TEST_CLEAN_LOG="$matrix_clean_log" \
 ARTIFACT_DIR="$matrix_artifact_dir" \
+ADAPTERS="rust-gimli,pti-elf-parser" \
 DWARF_CHECK="$fake_dwarf_check" \
 "$PROJECT_DIR/run_experiments.sh" --clean-results
 
@@ -202,8 +285,17 @@ if summary["summary"] != {"total": 30, "passed": 0, "skipped": 30, "failed": 0}:
     raise SystemExit("incorrect experiment summary")
 if any(experiment["status"] != "SKIP" for experiment in summary["experiments"]):
     raise SystemExit("expected every experiment to be skipped")
+if summary["adapters"] != ["rust-gimli", "pti-elf-parser"]:
+    raise SystemExit("adapter list is missing or incorrect")
+if any(set(experiment["adapter_results"]) != {"rust-gimli", "pti-elf-parser"}
+       for experiment in summary["experiments"]):
+    raise SystemExit("adapter results are not separated")
+if any(experiment["adapter_results"]["rust-gimli"]["status"] != "SKIP"
+       or experiment["adapter_results"]["pti-elf-parser"]["status"] != "SKIP"
+       for experiment in summary["experiments"]):
+    raise SystemExit("adapter skip status is missing or incorrect")
 if any(
-  {key: experiment["unitrace_comparison"][key] for key in ("mismatch_count", "summary")} != {
+  {key: experiment["adapter_results"]["rust-gimli"]["unitrace_comparison"][key] for key in ("mismatch_count", "summary")} != {
     "mismatch_count": 2,
     "summary": {
       "compared_offsets": 3,
@@ -218,10 +310,13 @@ if any(
   for experiment in summary["experiments"]
 ):
   raise SystemExit("unitrace comparison summary missing or incorrect")
-if any(experiment["comparison"].get("coverage") != {"sampled_ips": 8, "mapped_ips": 5, "unmapped_ips": 3}
+if any(experiment["adapter_results"]["pti-elf-parser"]["unitrace_comparison"]["mismatch_count"] != 4
+       for experiment in summary["experiments"]):
+  raise SystemExit("PTI unitrace comparison summary missing or incorrect")
+if any(experiment["adapter_results"]["rust-gimli"]["comparison"].get("coverage") != {"sampled_ips": 8, "mapped_ips": 5, "unmapped_ips": 3}
      for experiment in summary["experiments"]):
   raise SystemExit("VTune coverage summary missing or incorrect")
-if any(experiment["unitrace_comparison"].get("coverage") != {"sampled_ips": 7, "mapped_ips": 3, "unmapped_ips": 4}
+if any(experiment["adapter_results"]["rust-gimli"]["unitrace_comparison"].get("coverage") != {"sampled_ips": 7, "mapped_ips": 3, "unmapped_ips": 4}
      for experiment in summary["experiments"]):
   raise SystemExit("unitrace coverage summary missing or incorrect")
 PY
