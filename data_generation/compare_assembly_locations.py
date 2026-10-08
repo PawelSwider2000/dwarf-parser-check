@@ -3,13 +3,19 @@
 
 Usage:
   python3 compare_assembly_locations.py ASSEMBLY_IP VTUNE_REFERENCE \
-      UNITRACE_REFERENCE --output COMPARISON.csv
+      UNITRACE_REFERENCE --vtune-sampled-ips VTUNE_SAMPLED_IPS --output COMPARISON.csv
 
-The output contains every instruction in ASSEMBLY_IP order. Each reference CSV
-must contain ``Kernel Offset``, ``Source File``, and ``Source Line`` columns.
-An empty IP/location pair means that the corresponding tool did not report that
-instruction. A companion summary CSV categorizes each instruction as a matching
-location, mismatched location, VTune-only, unitrace-only, or absent from both.
+VTUNE_REFERENCE lists every instruction of the kernel binary that ran, sampled or
+not; VTUNE_SAMPLED_IPS holds the kernel offsets VTune stall-sampled; UNITRACE_REFERENCE
+holds the instructions unitrace sampled. Each reference CSV must contain
+``Kernel Offset``, ``Source File``, and ``Source Line`` columns.
+
+The output contains every instruction in VTUNE_REFERENCE plus any unitrace-sampled
+instruction missing from it, in offset order. ASSEMBLY_IP only supplies the
+assembly text. An empty IP/location pair means that the corresponding tool did not
+sample that instruction. A companion summary CSV categorizes each instruction as
+sampled by both with a matching or mismatched location, sampled by VTune only,
+sampled by unitrace only, or sampled by neither.
 """
 
 import argparse
@@ -33,7 +39,15 @@ class SourceLocation:
         return f"{self.file}:{self.line}"
 
     def matches(self, other: "SourceLocation") -> bool:
-        return self.line == other.line and os.path.normpath(self.file) == os.path.normpath(other.file)
+        if self.line != other.line:
+            return False
+        own_file, other_file = os.path.normpath(self.file), os.path.normpath(other.file)
+        if own_file == other_file:
+            return True
+        # unitrace may report a bare file name; then only the file names can be compared.
+        if os.path.dirname(own_file) and os.path.dirname(other_file):
+            return False
+        return os.path.basename(own_file) == os.path.basename(other_file)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -41,6 +55,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("assembly", type=Path, help="addressed .asm.ip listing")
     parser.add_argument("vtune_reference", type=Path, help="VTune reference CSV")
     parser.add_argument("unitrace_reference", type=Path, help="unitrace reference CSV")
+    parser.add_argument(
+        "--vtune-sampled-ips",
+        type=Path,
+        required=True,
+        help="kernel offsets VTune stall-sampled, one per line",
+    )
     parser.add_argument("--output", type=Path, required=True, help="comparison CSV path")
     parser.add_argument(
         "--summary-output",
@@ -75,8 +95,13 @@ def parse_locations(path: Path) -> dict[int, SourceLocation]:
     return locations
 
 
-def assembly_instructions(path: Path) -> list[tuple[int, str]]:
-    instructions: list[tuple[int, str]] = []
+def read_ip_list(path: Path) -> set[int]:
+    with path.open(encoding="utf-8") as stream:
+        return {int(token, 16) for token in stream.read().split()}
+
+
+def assembly_instructions(path: Path) -> dict[int, str]:
+    instructions: dict[int, str] = {}
     with path.open(encoding="utf-8", errors="replace") as stream:
         for line_number, raw_line in enumerate(stream, start=1):
             match = IP_MARKER.match(raw_line.rstrip("\n"))
@@ -85,14 +110,13 @@ def assembly_instructions(path: Path) -> list[tuple[int, str]]:
             assembly = match.group(2).strip()
             if not assembly or assembly.endswith(":"):
                 continue
-            instructions.append((int(match.group(1), 16), assembly))
+            instructions[int(match.group(1), 16)] = assembly
     if not instructions:
         raise ValueError(f"no IP-prefixed instructions found in {path}")
     return instructions
 
 
-def tool_columns(offset: int, locations: dict[int, SourceLocation]) -> tuple[str, str]:
-    location = locations.get(offset)
+def tool_columns(offset: int, location: SourceLocation | None) -> tuple[str, str]:
     if location is None:
         return "", ""
     return f"{offset:#x}", location.display()
@@ -100,8 +124,9 @@ def tool_columns(offset: int, locations: dict[int, SourceLocation]) -> tuple[str
 
 def write_comparison(
     output: Path,
-    instructions: list[tuple[int, str]],
-    vtune_locations: dict[int, SourceLocation],
+    instructions: dict[int, str],
+    vtune_listing: dict[int, SourceLocation],
+    vtune_sampled: set[int],
     unitrace_locations: dict[int, SourceLocation],
 ) -> dict[str, int]:
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -117,11 +142,12 @@ def write_comparison(
         writer.writerow(
             ["VTune IP", "VTune Location", "unitrace IP", "unitrace Location", "Assembly Code"]
         )
-        for offset, assembly in instructions:
-            vtune_source_location = vtune_locations.get(offset)
+        for offset in sorted(vtune_listing.keys() | unitrace_locations.keys()):
+            vtune_source_location = vtune_listing.get(offset) if offset in vtune_sampled else None
             unitrace_source_location = unitrace_locations.get(offset)
-            vtune_ip, vtune_location = tool_columns(offset, vtune_locations)
-            unitrace_ip, unitrace_location = tool_columns(offset, unitrace_locations)
+            vtune_ip, vtune_location = tool_columns(offset, vtune_source_location)
+            unitrace_ip, unitrace_location = tool_columns(offset, unitrace_source_location)
+            assembly = instructions.get(offset, "")
             if vtune_source_location and unitrace_source_location:
                 status = (
                     "same source location"
@@ -158,15 +184,16 @@ def main() -> int:
     arguments = parse_arguments()
     try:
         instructions = assembly_instructions(arguments.assembly)
-        vtune_locations = parse_locations(arguments.vtune_reference)
+        vtune_listing = parse_locations(arguments.vtune_reference)
+        vtune_sampled = read_ip_list(arguments.vtune_sampled_ips)
         unitrace_locations = parse_locations(arguments.unitrace_reference)
         summary = write_comparison(
-            arguments.output, instructions, vtune_locations, unitrace_locations
+            arguments.output, instructions, vtune_listing, vtune_sampled, unitrace_locations
         )
         summary_output = arguments.summary_output or default_summary_path(arguments.output)
         write_summary(summary_output, summary)
         print(
-            f"wrote {len(instructions)} instructions; "
+            f"wrote {sum(summary.values())} instructions; "
             f"same={summary['same source location']}, "
             f"different={summary['different source location']}, "
             f"VTune-only={summary['VTune-only']}, "

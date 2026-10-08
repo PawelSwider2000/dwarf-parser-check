@@ -211,7 +211,7 @@ def main() -> int:
     try:
         results_dir = arguments.results_dir.resolve()
         shader_dump_dir = results_dir / "unitrace_shader_dump"
-        assembly_files = sorted(shader_dump_dir.glob("*.asm.ip"))
+        assembly_files = sorted(shader_dump_dir.rglob("*.asm.ip"))
         if not assembly_files:
             raise ValueError(f"no unitrace .asm.ip files found in {shader_dump_dir}")
         zebin = find_vtune_zebin(results_dir, arguments.zebin)

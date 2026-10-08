@@ -34,6 +34,25 @@ trap 'rm -rf "$temporary_dir"' EXIT
 expect_failure "$temporary_dir/artifacts/build/gemm/jit-gline-O0/bin/gemm" \
   "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --debug gline run
 expect_failure "$temporary_dir/artifacts/build/gemm/aot-bmg-pvc-g-O0/bin/gemm" \
+  "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --device-code aot --device-target bmg,pvc run
+
+# --device-target auto (the default) builds for the Intel GPUs found under DRM_SYSFS_ROOT.
+fake_gpu() {
+  mkdir -p "$1/device"
+  printf '%s\n' "$2" > "$1/device/vendor"
+  printf '%s\n' "$3" > "$1/device/device"
+}
+fake_gpu "$temporary_dir/drm-bmg/card0" 0x8086 0xe20b
+fake_gpu "$temporary_dir/drm-bmg/card1" 0x10de 0x2684
+fake_gpu "$temporary_dir/drm-pvc/card0" 0x8086 0x0bd5
+mkdir -p "$temporary_dir/drm-none"
+[[ $(DRM_SYSFS_ROOT="$temporary_dir/drm-bmg" "$DWARF_CHECK" device-target 2>/dev/null) == bmg ]] || \
+  fail "BMG GPU was not detected as the AOT target"
+[[ $(DRM_SYSFS_ROOT="$temporary_dir/drm-pvc" "$DWARF_CHECK" device-target 2>/dev/null) == pvc ]] || \
+  fail "PVC GPU was not detected as the AOT target"
+expect_failure "pass --device-target" env DRM_SYSFS_ROOT="$temporary_dir/drm-none" "$DWARF_CHECK" device-target
+expect_failure "$temporary_dir/artifacts/build/gemm/aot-bmg-g-O0/bin/gemm" \
+  env DRM_SYSFS_ROOT="$temporary_dir/drm-bmg" \
   "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --device-code aot run
 expect_failure "$temporary_dir/artifacts/build/gemm/aot-pvc-g-O0/bin/gemm" \
   "$DWARF_CHECK" --artifact-dir "$temporary_dir/artifacts" --device-code aot --device-target pvc run
@@ -48,29 +67,102 @@ printf '{}\n' > "$manifest"
 vtune_instruction_report="$temporary_dir/vtune-instruction-report.csv"
 vtune_address_only_report="$temporary_dir/vtune-address-only-report.csv"
 printf 'Address,Assembly\n0x10,nop\n0x20,Block 1:\n0x30,illegal\n' > "$vtune_instruction_report"
+vtune_stall_report="$temporary_dir/vtune-stall-report.csv"
 printf 'Address\n0x40\n0x50\n' > "$vtune_address_only_report"
+printf 'war:Column filter is ON.\nAddress,Assembly,Source Line,Stall Count\n0x60,Block 1:,,\n0x60,nop,1,\n0x70,add,1,3\n0x80,illegal,,5\n' \
+  > "$vtune_stall_report"
 filtered_vtune_addresses=$(python3 - "$vtune_instruction_report" "$vtune_address_only_report" \
-  "$PROJECT_DIR/data_generation/extract_addr_srcline.py" <<'PY'
+  "$vtune_stall_report" "$PROJECT_DIR/data_generation/extract_addr_srcline.py" <<'PY'
 import importlib.util
 import sys
 from pathlib import Path
 
-instruction_report, address_only_report, module_path = map(Path, sys.argv[1:])
+instruction_report, address_only_report, stall_report, module_path = map(Path, sys.argv[1:])
 sys.argv = [str(module_path)]
 spec = importlib.util.spec_from_file_location("extract_addr_srcline", module_path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-instruction_addresses = sorted(module.report_instruction_addresses(instruction_report))
-address_only_addresses = sorted(module.report_instruction_addresses(address_only_report))
+instruction_addresses, instruction_sampled = module.report_instruction_addresses(instruction_report)
+address_only_addresses, address_only_sampled = module.report_instruction_addresses(address_only_report)
+stall_addresses, stall_sampled = module.report_instruction_addresses(stall_report)
+assert instruction_sampled is None and address_only_sampled is None
 print(
-    ",".join(hex(address) for address in instruction_addresses)
+    ",".join(hex(address) for address in sorted(instruction_addresses))
     + ";"
-    + ",".join(hex(address) for address in address_only_addresses)
+    + ",".join(hex(address) for address in sorted(address_only_addresses))
+    + ";"
+    + ",".join(hex(address) for address in sorted(stall_addresses))
+    + ";"
+    + ",".join(hex(address) for address in sorted(stall_sampled))
 )
 PY
 )
-[[ "$filtered_vtune_addresses" == "0x10;0x40,0x50" ]] || \
-  fail "VTune instruction filtering did not exclude pseudo-instruction addresses"
+[[ "$filtered_vtune_addresses" == "0x10;0x40,0x50;0x60,0x70;0x70" ]] || \
+  fail "VTune instruction filtering or stall-sampled selection is wrong: $filtered_vtune_addresses"
+
+# The comparison classifies instructions by what each tool sampled, and keeps unitrace
+# IPs that are missing from the VTune listing.
+comparison_dir="$temporary_dir/comparison"
+mkdir -p "$comparison_dir"
+printf '/* [00000000] */ mov\n/* [00000010] */ add\n/* [00000020] */ mul\n' > "$comparison_dir/kernel.asm.ip"
+printf 'Kernel Offset,Source File,Source Line\n0x0,a.cpp,1\n0x10,a.cpp,2\n0x20,a.cpp,3\n0x40,a.cpp,4\n0x50,a.cpp,5\n' \
+  > "$comparison_dir/vtune_reference.csv"
+printf '0x0\n0x10\n0x50\n' > "$comparison_dir/vtune_sampled_ips.txt"
+printf 'Kernel Offset,Source File,Source Line\n0x0,a.cpp,1\n0x20,a.cpp,3\n0x30,b.cpp,9\n0x50,a.cpp,6\n' \
+  > "$comparison_dir/unitrace_reference.csv"
+python3 "$PROJECT_DIR/data_generation/compare_assembly_locations.py" \
+  "$comparison_dir/kernel.asm.ip" "$comparison_dir/vtune_reference.csv" \
+  "$comparison_dir/unitrace_reference.csv" \
+  --vtune-sampled-ips "$comparison_dir/vtune_sampled_ips.txt" \
+  --output "$comparison_dir/comparison.csv" >/dev/null
+comparison_summary=$(awk -F, 'NR > 1 { printf "%s=%s;", $1, $2 }' "$comparison_dir/comparison_summary.csv")
+[[ "$comparison_summary" == "same source location=1;different source location=1;VTune-only=1;unitrace-only=2;neither tool=1;total=6;" ]] || \
+  fail "VTune vs unitrace comparison classified sampled instructions wrongly: $comparison_summary"
+
+# Unitrace's asm dump supplies the instructions, at their real offsets, and their source ranges.
+unitrace_asm_dir="$temporary_dir/unitrace_asm/unitrace.1/asm"
+mkdir -p "$unitrace_asm_dir"
+cat > "$unitrace_asm_dir/0.1.120.asm" <<'EOF'
+// Kernel: (anonymous namespace)::TestKernel
+// Mangled name: _ZTSN12_GLOBAL__N_110TestKernelE
+// Device #0, pid 1, kernel id 120
+
+// Assembly
+L0:
+/*   #0 [0000]  */ (W)     mov (16|M0)   r1.0<1>:ud  0x0:ud
+/*   #1 [0010]  */         add (16|M0)   r2.0<1>:d   r1.0<1;1,0>:d  1:w   {Compacted}
+/*   #2 [0018]  */ (W)     send.gtwy (1|M0)  null  r127  null:0  0x0  0x02000010  {EOT}
+
+// Source locations, by offset in the kernel:
+// 0-10 test.cpp:7
+// 10-18 /include/sycl/vars.hpp:77:1 [not a statement]
+// 18-28 test.cpp:NA
+// Defs, by offset in the kernel:
+// 0 #0
+EOF
+parsed_unitrace_asm=$(python3 - "$temporary_dir/unitrace_asm" "$PROJECT_DIR/data_generation" <<'PY'
+import sys
+from pathlib import Path
+
+result_dir, module_dir = Path(sys.argv[1]), sys.argv[2]
+sys.path.insert(0, module_dir)
+from extract_unitrace_stalls import parse_unitrace_asm, unitrace_asm_by_kernel
+
+by_kernel = unitrace_asm_by_kernel(result_dir)
+assert set(by_kernel) == {"(anonymous namespace)::TestKernel", "_ZTSN12_GLOBAL__N_110TestKernelE"}, by_kernel
+instructions, locations = parse_unitrace_asm(by_kernel["_ZTSN12_GLOBAL__N_110TestKernelE"])
+print(
+    ",".join(
+        f"{offset:#x}:{next(token for token in text.split() if not token.startswith('('))}"
+        for offset, text in sorted(instructions.items())
+    )
+    + ";"
+    + ",".join(f"{offset:#x}={file}:{line}" for offset, (file, line) in sorted(locations.items()))
+)
+PY
+)
+[[ "$parsed_unitrace_asm" == "0x0:mov,0x10:add,0x18:send.gtwy;0x0=test.cpp:7,0x10=/include/sycl/vars.hpp:77" ]] || \
+  fail "unitrace asm dump parsed wrongly: $parsed_unitrace_asm"
 
 cat > "$temporary_dir/bin/vtune" <<'EOF'
 #!/usr/bin/env bash
@@ -108,6 +200,9 @@ while [[ $# -gt 0 ]]; do
     --stall-sampling)
       shift
       ;;
+    --sampling-interval)
+      shift 2
+      ;;
     *)
       application=("$@")
       break
@@ -118,8 +213,9 @@ if [[ -n ${DPC_TEST_UNITRACE_ATTEMPTS:-} ]]; then
   printf 'attempt\n' >> "$DPC_TEST_UNITRACE_ATTEMPTS"
   [[ $(wc -l < "$DPC_TEST_UNITRACE_ATTEMPTS") -ge 2 ]] || exit 0
 fi
-mkdir -p "$result_dir/unitrace.test/metrics"
+mkdir -p "$result_dir/unitrace.test/metrics" "$result_dir/unitrace.test/asm"
 printf 'Kernel,IP[Address]\ntest,0\n' > "$result_dir/unitrace.test/metrics/metrics_0.csv"
+printf '// Kernel: test\n/*   #0 [0000]  */ nop\n' > "$result_dir/unitrace.test/asm/0.1.120.asm"
 exec "${application[@]}"
 EOF
 cat > "$temporary_dir/bin/python3" <<'EOF'
@@ -271,6 +367,7 @@ chmod +x "$fake_dwarf_check"
 
 DPC_TEST_CLEAN_LOG="$matrix_clean_log" \
 ARTIFACT_DIR="$matrix_artifact_dir" \
+AOT_TARGETS=bmg,pvc \
 ADAPTERS="rust-gimli,pti-elf-parser" \
 DWARF_CHECK="$fake_dwarf_check" \
 "$PROJECT_DIR/run_experiments.sh" --clean-results
