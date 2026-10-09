@@ -275,13 +275,17 @@ def correlate_vtune_locations(
     return locations
 
 
-def report_instruction_addresses(path: Path) -> set[int]:
-    """Return instruction addresses from a VTune CSV report.
+def report_instruction_addresses(path: Path) -> tuple[set[int], set[int] | None]:
+    """Return instruction addresses and the stall-sampled subset from a VTune CSV report.
 
     VTune emits a warning before the CSV header on some versions, so find the
     header in the same way as correlate_vtune_report.py. When the report
     provides an Assembly column, exclude block headers and illegal disassembly
     rows; address-only reports retain every parsable address.
+
+    The report lists every instruction of the kernel, sampled or not. When it has
+    a "Stall Count" column, the second value holds the addresses with at least one
+    stall sample; otherwise it is None.
     """
     with path.open(encoding="utf-8", errors="replace", newline="") as stream:
         header = next(
@@ -293,6 +297,7 @@ def report_instruction_addresses(path: Path) -> set[int]:
             raise ValueError(f"VTune report has no Address column: {path}")
 
         addresses = set()
+        sampled = set() if "Stall Count" in reader.fieldnames else None
         for row in reader:
             assembly = row.get("Assembly", "").strip()
             if "Assembly" in reader.fieldnames and (
@@ -300,10 +305,17 @@ def report_instruction_addresses(path: Path) -> set[int]:
             ):
                 continue
             try:
-                addresses.add(int(row["Address"], 16))
+                address = int(row["Address"], 16)
             except (KeyError, TypeError, ValueError):
                 continue
-    return addresses
+            addresses.add(address)
+            if sampled is not None:
+                try:
+                    if float(row["Stall Count"] or 0) > 0:
+                        sampled.add(address)
+                except ValueError:
+                    pass
+    return addresses, sampled
 
 
 def kernel_report_path(input_csv: Path, kernel_name: str) -> Path:
@@ -365,7 +377,9 @@ def generate_vtune_reference(
     manifest_kernels: list[dict] = []
     for kernel, rvas_by_display_address in sorted(by_kernel.items()):
         report_path = kernel_report_path(ref_csv, kernel)
-        report_addresses = report_instruction_addresses(report_path) if report_path.is_file() else set()
+        report_addresses, sampled_addresses = (
+            report_instruction_addresses(report_path) if report_path.is_file() else (set(), None)
+        )
         if report_addresses:
             section_file_offsets = {
                 address - rva for address, rva in rvas_by_display_address.items()
@@ -404,7 +418,7 @@ def generate_vtune_reference(
             f"mapped={len(correlateable_entries)}, "
             f"unmapped={len(report_addresses) - len(correlateable_entries)}"
         )
-        manifest_kernels.append({
+        manifest_entry = {
             "name": kernel,
             "reference_csv": str(out_path.resolve()),
             "ip_list": str(ip_list_path.resolve()),
@@ -412,7 +426,25 @@ def generate_vtune_reference(
             "mapped_ip_count": len(correlateable_entries),
             "unmapped_ip_count": len(report_addresses) - len(correlateable_entries),
             "section_file_offset": hex(section_file_offset),
-        })
+        }
+        if sampled_addresses is not None:
+            # Kernel offsets, the same space as unitrace_ips_<kernel>.txt.
+            sampled_ip_list_path = out_dir / f"vtune_sampled_ips_{safe}.txt"
+            with open(sampled_ip_list_path, "w") as f:
+                for addr in sorted(sampled_addresses):
+                    f.write(f"{addr - section_file_offset:#x}\n")
+            mapped_addresses = {address for address, _, _, _ in correlateable_entries}
+            sampled_mapped_count = len(sampled_addresses & mapped_addresses)
+            print(
+                f"VTune stall-sampled IPs for {kernel}: sampled={len(sampled_addresses)}, "
+                f"mapped={sampled_mapped_count} → {sampled_ip_list_path}"
+            )
+            manifest_entry.update({
+                "sampled_ip_list": str(sampled_ip_list_path.resolve()),
+                "stall_sampled_ip_count": len(sampled_addresses),
+                "stall_sampled_mapped_ip_count": sampled_mapped_count,
+            })
+        manifest_kernels.append(manifest_entry)
     return manifest_kernels
 
 

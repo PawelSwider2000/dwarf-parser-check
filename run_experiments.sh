@@ -13,7 +13,8 @@ OPT_LEVELS=(${OPT_LEVELS:-O0 O1 O2})
 DEVICE_CODE_MODES=(${DEVICE_CODE_MODES:-jit aot})
 
 # AOT builds produce one fat binary containing native images for each target.
-AOT_TARGETS=${AOT_TARGETS:-bmg,pvc}
+# auto builds only for the GPUs on this machine.
+AOT_TARGETS=${AOT_TARGETS:-auto}
 
 # Comma-separated adapter names to build and run (rust-gimli, iga, gdb-intel, pti-elf-parser).
 # Defaults to rust-gimli because gdb-intel requires an external addr2line binary.
@@ -214,6 +215,10 @@ done
 "$DWARF_CHECK" $EXTRA_FLAGS adapter build "${_adapter_flags[@]}"
 
 # ── Run experiments ────────────────────────────────────────────────────────────
+if [[ "$AOT_TARGETS" == auto && " ${DEVICE_CODE_MODES[*]} " == *" aot "* ]]; then
+  AOT_TARGETS=$("$DWARF_CHECK" device-target)
+  log "AOT target: $AOT_TARGETS"
+fi
 total=$(( ${#WORKLOADS[@]} * ${#DEBUG_MODES[@]} * ${#OPT_LEVELS[@]} * ${#DEVICE_CODE_MODES[@]} ))
 count=0
 failed=()
@@ -241,13 +246,17 @@ for workload in "${WORKLOADS[@]}"; do
         arguments+=(all --adapters "$ADAPTERS")
         log "[$count/$total] experiment: $label"
 
+        experiment_rc=0
         # shellcheck disable=SC2086
-        if "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}"; then
+        "$DWARF_CHECK" $EXTRA_FLAGS "${arguments[@]}" || experiment_rc=$?
+        if [[ $experiment_rc -eq 0 ]]; then
           experiment_status=$(write_experiment_record PASS "$label" "$workload" "$configuration" "$ADAPTERS")
           log "[$count/$total] $experiment_status: $label"
         else
-          log "[$count/$total] FAIL: $label"
-          failed+=("$label")
+          failure="$label (exit code $experiment_rc; results: $ARTIFACT_DIR/results/$workload/$configuration)"
+          log "[$count/$total] FAIL: $failure"
+          log "[$count/$total] see the dwarf-check error above for the failing tool, command, and paths"
+          failed+=("$failure")
           write_experiment_record FAIL "$label" "$workload" "$configuration" "$ADAPTERS" >/dev/null
         fi
       done

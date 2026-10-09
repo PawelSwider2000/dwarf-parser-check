@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 DEBUG_MODE=${DEBUG_MODE:-g}
 OPT_LEVEL=${OPT_LEVEL:-O0}
 DEVICE_CODE=${DEVICE_CODE:-jit}
-DEVICE_TARGET=${DEVICE_TARGET:-bmg,pvc}
+DEVICE_TARGET=${DEVICE_TARGET:-auto}
+DRM_SYSFS_ROOT=${DRM_SYSFS_ROOT:-/sys/class/drm}
 ARTIFACT_DIR=${ARTIFACT_DIR:-"$SCRIPT_DIR/artifacts"}
 WORKLOAD=${WORKLOAD:-gemm}
 BUILD_DIR=${BUILD_DIR:-"$SCRIPT_DIR/build"}
@@ -17,8 +18,11 @@ VTUNE_BIN=${VTUNE_BIN:-vtune}
 VTUNE_TARGET_GPU=${VTUNE_TARGET_GPU:-}
 VTUNE_COMPUTING_TASK=${VTUNE_COMPUTING_TASK:-}
 VTUNE_MAX_ATTEMPTS=${VTUNE_MAX_ATTEMPTS:-3}
-UNITRACE_BIN=${UNITRACE_BIN:-unitrace}
+DEFAULT_UNITRACE_BIN=$(realpath -m -- "$SCRIPT_DIR/../applications.analyzers.profilingtoolsinterfaces.sdk/tools/unitrace/build/unitrace")
+UNITRACE_BIN=${UNITRACE_BIN:-"$DEFAULT_UNITRACE_BIN"}
 UNITRACE_MAX_ATTEMPTS=${UNITRACE_MAX_ATTEMPTS:-3}
+# Stall sampling interval in us; 0.5 matches VTune's default, unitrace's own default is 50.
+UNITRACE_SAMPLING_INTERVAL=${UNITRACE_SAMPLING_INTERVAL:-0.5}
 TOOL=${TOOL:-both}
 ADAPTERS=${ADAPTERS:-rust-gimli}
 CLEAN_RESULTS=false
@@ -40,15 +44,66 @@ DEFAULT_VTUNE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/vtune_results"
 VTUNE_RESULT_DIR=${VTUNE_RESULT_DIR:-}
 VTUNE_REFERENCE_CSV=${VTUNE_REFERENCE_CSV:-}
 UNITRACE_RESULT_DIR=${UNITRACE_RESULT_DIR:-}
-UNITRACE_SHADER_DUMP_DIR=${UNITRACE_SHADER_DUMP_DIR:-}
 
 log() {
   printf '[dwarf-check] %s\n' "$*"
 }
 
+CURRENT_COMMAND=
+
 die() {
-  printf 'dwarf-check: %s\n' "$*" >&2
+  local context=${CURRENT_COMMAND:+$CURRENT_COMMAND}
+  if [[ -n "$WORKLOAD_CONFIGURATION" ]]; then
+    context+="${context:+ }$WORKLOAD/$WORKLOAD_CONFIGURATION"
+  fi
+  printf 'dwarf-check%s: %s\n' "${context:+ [$context]}" "$*" >&2
   exit 1
+}
+
+report_unexpected_failure() {
+  local rc=$1 line=$2 failed_command=$3
+  printf 'dwarf-check%s: command failed with exit code %s at %s:%s\n  command: %s\n' \
+    "${CURRENT_COMMAND:+ [$CURRENT_COMMAND${WORKLOAD_CONFIGURATION:+ $WORKLOAD/$WORKLOAD_CONFIGURATION}]}" \
+    "$rc" "${BASH_SOURCE[1]:-$0}" "$line" "$failed_command" >&2
+}
+trap 'report_unexpected_failure $? $LINENO "$BASH_COMMAND"' ERR
+
+# Resolves an external tool and logs the executable path that will be used.
+# Usage: require_tool LABEL VAR_NAME VALUE [DEFAULT]
+require_tool() {
+  local label=$1 var_name=$2 value=$3 default=${4:-}
+  local resolved
+  if ! resolved=$(command -v -- "$value" 2>/dev/null) || [[ ! -x "$resolved" ]]; then
+    local message="$label executable not found: '$value' (from $var_name"
+    [[ -n "$default" ]] && message+="; default: $default"
+    message+="). Set $var_name to the $label executable or add it to PATH"
+    die "$message"
+  fi
+  log "using $label: $resolved"
+}
+
+# Prints a shell-quoted command line.
+format_command() {
+  local quoted
+  printf -v quoted '%q ' "$@"
+  printf '%s' "${quoted% }"
+}
+
+# Logs the files a collector left in its result directory.
+log_result_dir_contents() {
+  local label=$1 result_dir=$2
+  if [[ ! -d "$result_dir" ]]; then
+    log "run: $label result dir was not created: $result_dir"
+    return 0
+  fi
+  log "run: $label result dir contents ($result_dir):"
+  local listing
+  listing=$(find "$result_dir" -mindepth 1 -maxdepth 2 -printf '  %P (%s bytes)\n' | head -n 40)
+  if [[ -n "$listing" ]]; then
+    printf '%s\n' "$listing"
+  else
+    log "run:   (empty)"
+  fi
 }
 
 usage() {
@@ -60,7 +115,8 @@ Global options must appear before the first command:
   --debug MODE          Device debug information: g, gline, or none (default: g)
   --opt LEVEL           Workload optimization: O0, O1, or O2 (default: O0)
   --device-code MODE    Device compilation: jit or aot (default: jit)
-  --device-target LIST  Comma-separated AOT targets: bmg, pvc (default: bmg,pvc)
+  --device-target LIST  Comma-separated AOT targets: bmg, pvc, or auto for the GPUs
+                        on this machine (default: auto)
   --artifact-dir PATH   Workload artifact root (default: artifacts)
   --build-dir PATH      dwarf-parser-check CMake build directory (default: build)
   --tool NAME           Collector to use: vtune, unitrace, or both (default: both)
@@ -73,10 +129,11 @@ Commands:
                         may be repeated; omit to build all.
   workload build        Build the selected SYCL workload.
   build                 Build the workload and dwarf-parser-check.
+  device-target         Print the AOT device target(s), with auto resolved to this machine's GPUs.
   run                   Run the workload, write its manifest, and collect selected samples.
   analyze               Generate selected references and run resolver adapters.
   all                   Build workload, collect selected samples, and analyze with all adapters.
-    --adapters LIST     Comma-separated adapter names, or all (default: all).
+    --adapters LIST     Comma-separated adapter names, all, or none to skip DWARF adapters (default: all).
   test                  Build the adapter, run CTest, then run Rust adapter tests.
 
 Run options:
@@ -84,13 +141,12 @@ Run options:
   --target-gpu PCI_IDS      VTune GPU adapter IDs.
   --result-dir PATH         VTune result directory.
   --unitrace-result-dir PATH  Unitrace result directory.
-  --unitrace-shader-dump-dir PATH  IGC shader dump directory for unitrace.
 
 Analyze options:
   --result-dir PATH         Existing VTune result directory.
   --unitrace-result-dir PATH  Existing unitrace result directory.
   --reference-csv PATH      VTune address-to-source CSV output path.
-  --adapters LIST           Comma-separated adapter names, or all.
+  --adapters LIST           Comma-separated adapter names, all, or none to skip DWARF adapters.
   --kernel-debug-json PATH  Existing workload manifest path.
   --output-dir PATH         Adapter report output directory.
 
@@ -132,9 +188,35 @@ validate_device_code() {
   esac
 }
 
+# Prints the AOT targets of the Intel GPUs on this machine, from their PCI device IDs.
+detect_device_target() {
+  local card vendor device target targets=()
+  for card in "$DRM_SYSFS_ROOT"/card*/device; do
+    [[ -r "$card/vendor" && -r "$card/device" ]] || continue
+    vendor=$(<"$card/vendor")
+    [[ "${vendor,,}" == 0x8086 ]] || continue
+    device=$(<"$card/device")
+    case "${device,,}" in
+      0xe2??) target=bmg ;;
+      0x0bd[0-9ab]) target=pvc ;;
+      *) continue ;;
+    esac
+    [[ " ${targets[*]} " == *" $target "* ]] || targets+=("$target")
+    log "detected $target GPU (PCI device ID $device) at ${card%/device}" >&2
+  done
+  [[ ${#targets[@]} -gt 0 ]] || \
+    die "no BMG or PVC GPU found under $DRM_SYSFS_ROOT; pass --device-target bmg, pvc, or bmg,pvc"
+  local IFS=,
+  printf '%s\n' "${targets[*]}"
+}
+
 validate_device_target() {
   local target
   local -a targets
+  if [[ "$DEVICE_TARGET" == auto ]]; then
+    [[ "$DEVICE_CODE" == aot ]] || return 0
+    DEVICE_TARGET=$(detect_device_target) || exit 1
+  fi
   IFS=',' read -ra targets <<< "$DEVICE_TARGET"
   [[ ${#targets[@]} -gt 0 ]] || die "at least one AOT device target is required"
   for target in "${targets[@]}"; do
@@ -192,9 +274,6 @@ refresh_derived_paths() {
   DEFAULT_UNITRACE_RESULT_DIR="$WORKLOAD_RESULTS_DIR/unitrace_results"
   if [[ -z "$unitrace_result_dir_from_environment" ]]; then
     UNITRACE_RESULT_DIR="$DEFAULT_UNITRACE_RESULT_DIR"
-  fi
-  if [[ -z "$UNITRACE_SHADER_DUMP_DIR" ]]; then
-    UNITRACE_SHADER_DUMP_DIR="$WORKLOAD_RESULTS_DIR/unitrace_shader_dump"
   fi
   UNITRACE_MANIFEST_JSON="$WORKLOAD_RESULTS_DIR/unitrace_manifest.json"
 }
@@ -298,8 +377,13 @@ adapter_build() {
     done
   fi
 
-  if [[ "$enable_gdb" == ON ]] && [[ ! -x "$GDB_ADDR2LINE" ]]; then
-    die "IntelGT addr2line executable not found: $GDB_ADDR2LINE"
+  if [[ "$enable_gdb" == ON ]]; then
+    require_tool "IntelGT addr2line" GDB_ADDR2LINE "$GDB_ADDR2LINE"
+  fi
+  if [[ "$enable_gimli" == ON ]]; then
+    command -v cargo >/dev/null 2>&1 || \
+      die "cargo executable not found in PATH; the gimli-rust (rust-gimli) adapter needs it to build. Install Rust (https://rustup.rs) or add ~/.cargo/bin to PATH, then rerun 'dwarf-check adapter build'"
+    log "adapter build: using cargo: $(command -v cargo)"
   fi
   local cmake_args=(
     -S "$SCRIPT_DIR"
@@ -327,9 +411,9 @@ workload_build() {
   if [[ ! -f "$workload_project_dir/CMakeLists.txt" ]]; then
     die "workload CMake project not found: $workload_project_dir"
   fi
-  if ! command -v icpx >/dev/null 2>&1; then
-    die "icpx was not found in PATH; initialize the oneAPI compiler environment first"
-  fi
+  command -v icpx >/dev/null 2>&1 || \
+    die "icpx executable not found in PATH; initialize the oneAPI compiler environment first (source <oneAPI install>/setvars.sh)"
+  log "workload build: using icpx: $(command -v icpx)"
 
   log "workload build: configuring $WORKLOAD (debug=$DEBUG_MODE, opt=$OPT_LEVEL, device-code=$DEVICE_CODE, device-target=$DEVICE_TARGET)"
   mkdir -p "$ARTIFACT_DIR"
@@ -341,30 +425,30 @@ workload_build() {
       rm -rf "$WORKLOAD_BUILD_DIR"
     fi
   fi
+  # JIT builds ignore the AOT target (it may still be auto); drop it from the cache.
+  local cmake_target_args=(-UDPC_WORKLOAD_AOT_TARGET)
+  if [[ "$DEVICE_CODE" == aot ]]; then
+    cmake_target_args=(-DDPC_WORKLOAD_AOT_TARGET="$DEVICE_TARGET")
+  fi
   cmake -S "$workload_project_dir" -B "$WORKLOAD_BUILD_DIR" \
     -DCMAKE_CXX_COMPILER=icpx \
     -DDPC_WORKLOAD="$WORKLOAD" \
     -DDPC_WORKLOAD_DEBUG="$DEBUG_MODE" \
     -DDPC_WORKLOAD_OPT="$OPT_LEVEL" \
     -DDPC_WORKLOAD_DEVICE_CODE="$DEVICE_CODE" \
-    -DDPC_WORKLOAD_AOT_TARGET="$DEVICE_TARGET"
-  if tool_selected unitrace && [[ "$DEVICE_CODE" == aot ]]; then
-    rm -rf "$UNITRACE_SHADER_DUMP_DIR"
-    mkdir -p "$UNITRACE_SHADER_DUMP_DIR"
-    log "workload build: writing AOT unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
-    local unitrace_shader_dump_dir_abs
-    unitrace_shader_dump_dir_abs=$(cd "$UNITRACE_SHADER_DUMP_DIR" && pwd -P)
-    IGC_ShaderDumpEnable=1 IGC_DumpToCustomDir="$unitrace_shader_dump_dir_abs" \
-      cmake --build "$WORKLOAD_BUILD_DIR" --clean-first
-  else
-    cmake --build "$WORKLOAD_BUILD_DIR"
-  fi
+    "${cmake_target_args[@]}"
+  cmake --build "$WORKLOAD_BUILD_DIR"
   log "workload build: binary: $BIN_PATH"
 }
 
 require_workload_binary() {
   if [[ ! -x "$BIN_PATH" ]]; then
     die "workload binary not found or not executable: $BIN_PATH; run 'dwarf-check workload build' first"
+  fi
+  local missing_libraries
+  missing_libraries=$(ldd "$BIN_PATH" 2>/dev/null | awk '/not found/ { print $1 }' | paste -sd, -) || true
+  if [[ -n "$missing_libraries" ]]; then
+    die "workload binary $BIN_PATH cannot load shared libraries: $missing_libraries; initialize the oneAPI runtime environment first (source <oneAPI install>/setvars.sh)"
   fi
 }
 
@@ -384,95 +468,129 @@ vtune_collect() {
   require_workload_binary
   [[ "$VTUNE_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || \
     die "VTUNE_MAX_ATTEMPTS must be a positive integer: $VTUNE_MAX_ATTEMPTS"
+  require_tool VTune VTUNE_BIN "$VTUNE_BIN"
   local ptrace_scope_file=/proc/sys/kernel/yama/ptrace_scope
   if [[ -r "$ptrace_scope_file" ]] && [[ $(<"$ptrace_scope_file") != 0 ]]; then
-    die "VTune profiling requires unrestricted ptrace access. Run: sudo sysctl -w kernel.yama.ptrace_scope=0"
+    die "VTune profiling requires unrestricted ptrace access (kernel.yama.ptrace_scope=$(<"$ptrace_scope_file")). Run: sudo sysctl -w kernel.yama.ptrace_scope=0"
   fi
 
   mkdir -p "$(dirname "$KERNEL_DEBUG_JSON")"
 
-  local vtune_args=(
+  local vtune_cmd=(
+    "$VTUNE_BIN"
     -collect gpu-hotspots
     -knob gpu-profiling-mode=source-analysis
     -knob source-analysis=stall-sampling
     -result-dir "$VTUNE_RESULT_DIR"
   )
   if [[ -n "$VTUNE_TARGET_GPU" ]]; then
-    vtune_args+=(-knob "target-gpu=$VTUNE_TARGET_GPU")
+    vtune_cmd+=(-knob "target-gpu=$VTUNE_TARGET_GPU")
   fi
-  vtune_args+=(-- "$BIN_PATH" "$KERNEL_DEBUG_JSON")
+  vtune_cmd+=(-- "$BIN_PATH" "$KERNEL_DEBUG_JSON")
 
-  local attempt
+  local attempt rc=0
   for ((attempt = 1; attempt <= VTUNE_MAX_ATTEMPTS; ++attempt)); do
     if [[ -e "$VTUNE_RESULT_DIR" ]]; then
       log "run: removing previous VTune result: $VTUNE_RESULT_DIR"
       rm -rf "$VTUNE_RESULT_DIR"
     fi
     log "run: collecting VTune samples into $VTUNE_RESULT_DIR (attempt $attempt/$VTUNE_MAX_ATTEMPTS)"
-    if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "$VTUNE_BIN" "${vtune_args[@]}"; then
+    log "run: command: $(format_command "${vtune_cmd[@]}")"
+    rc=0
+    ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} "${vtune_cmd[@]}" || rc=$?
+    if [[ $rc -eq 0 ]]; then
       log "run: VTune result: $VTUNE_RESULT_DIR"
       return 0
     fi
-    log "run: VTune collection failed"
+    log "run: VTune attempt $attempt/$VTUNE_MAX_ATTEMPTS failed: exit code $rc; tool=$VTUNE_BIN; result dir=$VTUNE_RESULT_DIR"
+    log_result_dir_contents VTune "$VTUNE_RESULT_DIR"
   done
-  die "VTune collection failed after $VTUNE_MAX_ATTEMPTS attempts; check GPU availability and the VTune output above"
+  die "VTune collection failed after $VTUNE_MAX_ATTEMPTS attempts (last exit code $rc)
+  tool:       $VTUNE_BIN
+  workload:   $BIN_PATH
+  result dir: $VTUNE_RESULT_DIR
+  command:    $(format_command "${vtune_cmd[@]}")
+  hint: check GPU availability and the VTune output above"
 }
 
+# Checks that unitrace wrote a metrics_*.csv with at least one data row.
+# On failure, stores the reason in UNITRACE_SAMPLE_PROBLEM.
 unitrace_has_stall_samples() {
+  UNITRACE_SAMPLE_PROBLEM=
+  if [[ ! -d "$UNITRACE_RESULT_DIR" ]]; then
+    UNITRACE_SAMPLE_PROBLEM="result dir was not created: $UNITRACE_RESULT_DIR"
+    return 1
+  fi
   local metrics_file
+  metrics_file=$(find "$UNITRACE_RESULT_DIR" -type f -name 'metrics_*.csv' -print -quit)
+  if [[ -z "$metrics_file" ]]; then
+    UNITRACE_SAMPLE_PROBLEM="no metrics_*.csv file in $UNITRACE_RESULT_DIR"
+    return 1
+  fi
   metrics_file=$(find "$UNITRACE_RESULT_DIR" -type f -name 'metrics_*.csv' -size +1c -print -quit)
-  [[ -n "$metrics_file" ]] || return 1
-  awk 'NR > 1 && NF { found = 1; exit } END { exit !found }' "$metrics_file"
+  if [[ -z "$metrics_file" ]] ||
+     ! awk 'NR > 1 && NF { found = 1; exit } END { exit !found }' "$metrics_file"; then
+    UNITRACE_SAMPLE_PROBLEM="metrics_*.csv in $UNITRACE_RESULT_DIR is empty or has only a header (no stall samples)"
+    return 1
+  fi
+  if [[ -z $(find "$UNITRACE_RESULT_DIR" -type f -path '*/asm/*.asm' -print -quit) ]]; then
+    UNITRACE_SAMPLE_PROBLEM="no asm/*.asm kernel dump in $UNITRACE_RESULT_DIR; unitrace 2.4 or newer is required"
+    return 1
+  fi
+}
+
+unitrace_paranoid_hint() {
+  local paranoid_file=/proc/sys/dev/xe/observation_paranoid
+  if [[ -r "$paranoid_file" ]] && [[ $(<"$paranoid_file") == 0 ]]; then
+    printf 'dev.xe.observation_paranoid=0 (OK)'
+  elif [[ -r "$paranoid_file" ]]; then
+    printf 'dev.xe.observation_paranoid=%s but must be 0; run: sudo sysctl -w dev.xe.observation_paranoid=0' "$(<"$paranoid_file")"
+  else
+    printf 'ensure dev.xe.observation_paranoid=0 (sudo sysctl -w dev.xe.observation_paranoid=0)'
+  fi
 }
 
 unitrace_collect() {
   require_workload_binary
   [[ "$UNITRACE_MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || \
     die "UNITRACE_MAX_ATTEMPTS must be a positive integer: $UNITRACE_MAX_ATTEMPTS"
-  if [[ "$DEVICE_CODE" == jit ]] && [[ -e "$UNITRACE_SHADER_DUMP_DIR" ]]; then
-    log "run: removing previous unitrace shader dump: $UNITRACE_SHADER_DUMP_DIR"
-    rm -rf "$UNITRACE_SHADER_DUMP_DIR"
-  fi
+  require_tool unitrace UNITRACE_BIN "$UNITRACE_BIN" "$DEFAULT_UNITRACE_BIN"
   mkdir -p "$(dirname "$KERNEL_DEBUG_JSON")"
-  if [[ "$DEVICE_CODE" == jit ]]; then
-    mkdir -p "$UNITRACE_SHADER_DUMP_DIR"
-  elif [[ ! -d "$UNITRACE_SHADER_DUMP_DIR" ]] ||
-       [[ -z $(find "$UNITRACE_SHADER_DUMP_DIR" -maxdepth 1 -name '*.asm' -print -quit) ]]; then
-    die "AOT unitrace collection requires an IGC shader dump; run 'dwarf-check build' with --tool unitrace first"
-  fi
 
-  local attempt
+  local unitrace_cmd=(
+    "$UNITRACE_BIN" --stall-sampling --sampling-interval "$UNITRACE_SAMPLING_INTERVAL"
+    --result-dir "$UNITRACE_RESULT_DIR"
+    "$BIN_PATH" "$KERNEL_DEBUG_JSON"
+  )
+  local unitrace_env=(ZE_ENABLE_TRACING_LAYER="${ZE_ENABLE_TRACING_LAYER:-1}")
+
+  local attempt rc=0 problem=
   for ((attempt = 1; attempt <= UNITRACE_MAX_ATTEMPTS; ++attempt)); do
     if [[ -e "$UNITRACE_RESULT_DIR" ]]; then
       log "run: removing previous unitrace result: $UNITRACE_RESULT_DIR"
       rm -rf "$UNITRACE_RESULT_DIR"
     fi
     log "run: collecting unitrace stall samples into $UNITRACE_RESULT_DIR (attempt $attempt/$UNITRACE_MAX_ATTEMPTS)"
-    local unitrace_succeeded=false
-    if [[ "$DEVICE_CODE" == jit ]]; then
-      log "run: writing unitrace shader dump to $UNITRACE_SHADER_DUMP_DIR"
-      if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-        IGC_ShaderDumpEnable=1 \
-        IGC_DumpToCustomDir="$UNITRACE_SHADER_DUMP_DIR" \
-        "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
-        "$BIN_PATH" "$KERNEL_DEBUG_JSON"; then
-        unitrace_succeeded=true
-      fi
-    else
-      log "run: using AOT unitrace shader dump from $UNITRACE_SHADER_DUMP_DIR"
-      if ZE_ENABLE_TRACING_LAYER=${ZE_ENABLE_TRACING_LAYER:-1} \
-        "$UNITRACE_BIN" --stall-sampling --result-dir "$UNITRACE_RESULT_DIR" \
-        "$BIN_PATH" "$KERNEL_DEBUG_JSON"; then
-        unitrace_succeeded=true
-      fi
-    fi
-    if [[ "$unitrace_succeeded" == true ]] && unitrace_has_stall_samples; then
+    log "run: command: $(format_command env "${unitrace_env[@]}" "${unitrace_cmd[@]}")"
+    rc=0
+    env "${unitrace_env[@]}" "${unitrace_cmd[@]}" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+      problem="unitrace exited with code $rc"
+    elif unitrace_has_stall_samples; then
       log "run: unitrace result: $UNITRACE_RESULT_DIR"
       return 0
+    else
+      problem=$UNITRACE_SAMPLE_PROBLEM
     fi
-    log "run: Unitace did not produce populated stall-sampling metrics"
+    log "run: unitrace attempt $attempt/$UNITRACE_MAX_ATTEMPTS failed: $problem; tool=$UNITRACE_BIN"
+    log_result_dir_contents unitrace "$UNITRACE_RESULT_DIR"
   done
-  die "Unitace stall sampling failed after $UNITRACE_MAX_ATTEMPTS attempts; check GPU availability and the Unitace output above"
+  die "Unitrace stall sampling failed after $UNITRACE_MAX_ATTEMPTS attempts: $problem
+  tool:        $UNITRACE_BIN
+  workload:    $BIN_PATH
+  result dir:  $UNITRACE_RESULT_DIR
+  command:     $(format_command env "${unitrace_env[@]}" "${unitrace_cmd[@]}")
+  hint: $(unitrace_paranoid_hint); also check GPU availability and the unitrace output above"
 }
 
 collect_selected_tools() {
@@ -501,6 +619,7 @@ generate_vtune_reference() {
   if [[ ! -d "$VTUNE_RESULT_DIR" ]]; then
     die "VTune result directory not found: $VTUNE_RESULT_DIR; run 'dwarf-check run' first"
   fi
+  require_tool VTune VTUNE_BIN "$VTUNE_BIN"
 
   mkdir -p "$WORKLOAD_RESULTS_DIR"
   local vtune_report_args=(
@@ -510,6 +629,7 @@ generate_vtune_reference() {
     -column Address
     -column "Source Line"
     -column Assembly
+    -column "Stall Count"
     -format csv
     -csv-delimiter comma
     -report-width 0
@@ -517,6 +637,7 @@ generate_vtune_reference() {
   if [[ -n "$VTUNE_COMPUTING_TASK" ]]; then
     vtune_report_args+=(
       -source-object "computing-task=$VTUNE_COMPUTING_TASK"
+      -filter "computing-task=$VTUNE_COMPUTING_TASK"
       -report-output "$WORKLOAD_RESULTS_DIR/result.csv"
     )
     "$VTUNE_BIN" "${vtune_report_args[@]}"
@@ -526,6 +647,7 @@ generate_vtune_reference() {
       local kernel_report_args=("${vtune_report_args[@]}")
       kernel_report_args+=(
         -source-object "computing-task=$computing_task"
+        -filter "computing-task=$computing_task"
         -report-output "$WORKLOAD_RESULTS_DIR/result_${kernel_name}.csv"
       )
       "$VTUNE_BIN" "${kernel_report_args[@]}"
@@ -558,16 +680,30 @@ generate_unitrace_reference() {
     --result-dir "$UNITRACE_RESULT_DIR" \
     --kernel-debug-json "$KERNEL_DEBUG_JSON" \
     --output-dir "$WORKLOAD_RESULTS_DIR" \
-    --manifest-output "$UNITRACE_MANIFEST_JSON" \
-    --shader-dump-dir "$UNITRACE_SHADER_DUMP_DIR"
+    --manifest-output "$UNITRACE_MANIFEST_JSON"
   log "analyze: unitrace reference CSVs written to $WORKLOAD_RESULTS_DIR"
   log "analyze: manifest: $UNITRACE_MANIFEST_JSON"
+}
+
+# Fails early when a requested adapter was compiled out of dwarf-parser-check.
+require_compiled_adapters() {
+  local cache_file="$BUILD_DIR/CMakeCache.txt"
+  [[ -f "$cache_file" ]] || return 0
+  local adapter
+  IFS=',' read -ra _requested_adapters <<< "$ADAPTERS"
+  for adapter in "${_requested_adapters[@]}"; do
+    if [[ "$adapter" == rust-gimli ]] &&
+       grep -q '^CARGO_EXECUTABLE:FILEPATH=.*NOTFOUND' "$cache_file"; then
+      die "adapter rust-gimli is not compiled into $BUILD_DIR/dwarf-parser-check: cargo was not found when the adapter was configured (CARGO_EXECUTABLE-NOTFOUND in $cache_file). Add cargo to PATH and run 'dwarf-check adapter build', or pick other adapters with --adapters"
+    fi
+  done
 }
 
 adapter_run() {
   if [[ ! -x "$BUILD_DIR/dwarf-parser-check" ]]; then
     adapter_build
   fi
+  require_compiled_adapters
   if [[ ! -f "$KERNEL_DEBUG_JSON" ]]; then
     if [[ "$KERNEL_DEBUG_JSON" != "$DEFAULT_KERNEL_DEBUG_JSON" ]]; then
       die "kernel debug manifest not found: $KERNEL_DEBUG_JSON"
@@ -596,32 +732,108 @@ adapter_run() {
     resolver_args+=(--reference "$REFERENCE_FILE")
   fi
 
-  DPC_GDB_ADDR2LINE="$GDB_ADDR2LINE" \
-    "$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" "$@" >/dev/null
+  local resolver_cmd=("$BUILD_DIR/dwarf-parser-check" "${resolver_args[@]}" "$@")
+  local rc=0
+  DPC_GDB_ADDR2LINE="$GDB_ADDR2LINE" "${resolver_cmd[@]}" >/dev/null || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    die "adapter run ($comparison_label) failed with exit code $rc (see the dwarf-parser-check error above; 'unknown adapter selection' means the adapter was not compiled in, so rebuild with 'dwarf-check adapter build')
+  tool:       $BUILD_DIR/dwarf-parser-check
+  adapters:   $ADAPTERS
+  output dir: $output_dir
+  command:    $(format_command "${resolver_cmd[@]}")"
+  fi
   log "adapter run: per-adapter reports saved to $output_dir"
+}
+
+print_csv_table() {
+  if command -v column >/dev/null 2>&1; then
+    column -s, -t "$1" | sed 's/^/  /'
+  else
+    sed 's/^/  /' "$1"
+  fi
+}
+
+# Compares VTune and unitrace source locations per instruction, for every kernel
+# present in both manifests. The primary report uses the source locations unitrace
+# itself reports in metrics_*.csv (falling back to its asm dump's source table);
+# the _dwarf report uses unitrace IPs mapped through the zebin DWARF line table.
+compare_vtune_unitrace() {
+  local comparison_dir="$WORKLOAD_RESULTS_DIR/vtune_vs_unitrace"
+  [[ -f "$VTUNE_MANIFEST_JSON" ]] || die "VTune manifest not found: $VTUNE_MANIFEST_JSON"
+  [[ -f "$UNITRACE_MANIFEST_JSON" ]] || die "unitrace manifest not found: $UNITRACE_MANIFEST_JSON"
+  mkdir -p "$comparison_dir"
+
+  local compared=0 kernel assembly vtune_reference vtune_sampled_ips marker_reference dwarf_reference
+  while IFS=$'\t' read -r kernel assembly vtune_reference vtune_sampled_ips marker_reference dwarf_reference; do
+    local safe_kernel=${kernel//[^a-zA-Z0-9_-]/_}
+    log "compare: $kernel"
+    python3 "$SCRIPT_DIR/data_generation/compare_assembly_locations.py" \
+      "$assembly" "$vtune_reference" "$marker_reference" \
+      --vtune-sampled-ips "$vtune_sampled_ips" \
+      --output "$comparison_dir/vtune_vs_unitrace_${safe_kernel}.csv"
+    python3 "$SCRIPT_DIR/data_generation/compare_assembly_locations.py" \
+      "$assembly" "$vtune_reference" "$dwarf_reference" \
+      --vtune-sampled-ips "$vtune_sampled_ips" \
+      --output "$comparison_dir/vtune_vs_unitrace_dwarf_${safe_kernel}.csv"
+    log "compare: unitrace-reported locations vs VTune summary:"
+    print_csv_table "$comparison_dir/vtune_vs_unitrace_${safe_kernel}_summary.csv"
+    log "compare: unitrace IPs via DWARF vs VTune summary:"
+    print_csv_table "$comparison_dir/vtune_vs_unitrace_dwarf_${safe_kernel}_summary.csv"
+    compared=$((compared + 1))
+  done < <(python3 - "$VTUNE_MANIFEST_JSON" "$UNITRACE_MANIFEST_JSON" <<'PY'
+import json
+import sys
+
+vtune = {kernel["name"]: kernel for kernel in json.load(open(sys.argv[1], encoding="utf-8"))["kernels"]}
+for kernel in json.load(open(sys.argv[2], encoding="utf-8"))["kernels"]:
+  vtune_kernel = vtune.get(kernel["name"])
+  if vtune_kernel is None:
+    print(f"compare: kernel {kernel['name']} has unitrace samples but no VTune samples; skipping", file=sys.stderr)
+    continue
+  if "sampled_ip_list" not in vtune_kernel:
+    sys.exit(f"compare: VTune manifest has no stall-sampled IP list for {kernel['name']}; re-run 'dwarf-check analyze'")
+  print("\t".join((
+    kernel["name"],
+    kernel["addressed_shader_dump"],
+    vtune_kernel["reference_csv"],
+    vtune_kernel["sampled_ip_list"],
+    kernel.get("native_reference_csv") or kernel["marker_reference_csv"],
+    kernel["reference_csv"],
+  )))
+PY
+)
+  [[ $compared -gt 0 ]] || \
+    die "no kernels are present in both $VTUNE_MANIFEST_JSON and $UNITRACE_MANIFEST_JSON"
+  log "compare: VTune vs unitrace reports written to $comparison_dir"
 }
 
 analyze_selected_tools() {
   if tool_selected vtune; then
     generate_vtune_reference
-    REFERENCE_FILE=$VTUNE_REFERENCE_CSV \
-      COMPARISON_LABEL=vtune \
-      ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR" \
-      adapter_run
+    if [[ "$ADAPTERS" != none ]]; then
+      REFERENCE_FILE=$VTUNE_REFERENCE_CSV \
+        COMPARISON_LABEL=vtune \
+        ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR" \
+        adapter_run
+    fi
   fi
   if tool_selected unitrace; then
     generate_unitrace_reference
-    SAMPLE_MANIFEST=$UNITRACE_MANIFEST_JSON \
-      COMPARISON_LABEL=unitrace \
-      ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR/unitrace" \
-      adapter_run
+    if [[ "$ADAPTERS" != none ]]; then
+      SAMPLE_MANIFEST=$UNITRACE_MANIFEST_JSON \
+        COMPARISON_LABEL=unitrace \
+        ADAPTER_OUTPUT_DIR="$WORKLOAD_RESULTS_DIR/unitrace" \
+        adapter_run
+    fi
+  fi
+  if [[ "$TOOL" == both ]]; then
+    compare_vtune_unitrace
   fi
 }
 
 run_command() {
   local result_dir="$VTUNE_RESULT_DIR"
   local unitrace_result_dir="$UNITRACE_RESULT_DIR"
-  local unitrace_shader_dump_dir="$UNITRACE_SHADER_DUMP_DIR"
   local kernel_debug_json="$KERNEL_DEBUG_JSON"
   local target_gpu="$VTUNE_TARGET_GPU"
   while [[ $# -gt 0 ]]; do
@@ -646,11 +858,6 @@ run_command() {
         unitrace_result_dir=$2
         shift 2
         ;;
-      --unitrace-shader-dump-dir)
-        [[ $# -ge 2 ]] || die "run --unitrace-shader-dump-dir requires a path"
-        unitrace_shader_dump_dir=$2
-        shift 2
-        ;;
       *)
         break
         ;;
@@ -662,7 +869,6 @@ run_command() {
   KERNEL_DEBUG_JSON=$kernel_debug_json
   VTUNE_RESULT_DIR=$result_dir
   UNITRACE_RESULT_DIR=$unitrace_result_dir
-  UNITRACE_SHADER_DUMP_DIR=$unitrace_shader_dump_dir
   VTUNE_TARGET_GPU=$target_gpu
   clean_workload_results
   collect_selected_tools
@@ -672,7 +878,6 @@ run_command() {
 analyze_command() {
   local result_dir="$VTUNE_RESULT_DIR"
   local unitrace_result_dir="$UNITRACE_RESULT_DIR"
-  local unitrace_shader_dump_dir="$UNITRACE_SHADER_DUMP_DIR"
   local reference_csv="$VTUNE_REFERENCE_CSV"
   local adapters="$ADAPTERS"
   local kernel_debug_json="$KERNEL_DEBUG_JSON"
@@ -692,11 +897,6 @@ analyze_command() {
       --unitrace-result-dir)
         [[ $# -ge 2 ]] || die "analyze --unitrace-result-dir requires a path"
         unitrace_result_dir=$2
-        shift 2
-        ;;
-      --unitrace-shader-dump-dir)
-        [[ $# -ge 2 ]] || die "analyze --unitrace-shader-dump-dir requires a path"
-        unitrace_shader_dump_dir=$2
         shift 2
         ;;
       --adapters)
@@ -724,7 +924,6 @@ analyze_command() {
   fi
   VTUNE_RESULT_DIR=$result_dir
   UNITRACE_RESULT_DIR=$unitrace_result_dir
-  UNITRACE_SHADER_DUMP_DIR=$unitrace_shader_dump_dir
   VTUNE_REFERENCE_CSV=$reference_csv
   KERNEL_DEBUG_JSON=$kernel_debug_json
   WORKLOAD_RESULTS_DIR=$output_dir
@@ -771,6 +970,7 @@ set -- "${PARSED_ARGUMENTS[@]}"
 
 while [[ $# -gt 0 ]]; do
   command=$1
+  CURRENT_COMMAND=$command
   shift
   case "$command" in
     adapter)
@@ -810,6 +1010,12 @@ while [[ $# -gt 0 ]]; do
     build)
       workload_build
       adapter_build
+      ;;
+    device-target)
+      if [[ "$DEVICE_TARGET" == auto ]]; then
+        DEVICE_TARGET=$(detect_device_target) || exit 1
+      fi
+      printf '%s\n' "$DEVICE_TARGET"
       ;;
     run)
       run_command "$@"

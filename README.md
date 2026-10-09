@@ -64,7 +64,7 @@ Defaults:
 | `--debug` | `g` (`g`, `gline`, or `none`) |
 | `--opt` | `O0` (`O0`, `O1`, or `O2`) |
 | `--device-code` | `jit` (`jit` or `aot`) |
-| `--device-target` | `bmg,pvc` (comma-separated `bmg` and/or `pvc`; used by AOT) |
+| `--device-target` | `auto` (the GPUs on this machine; or comma-separated `bmg` and/or `pvc`; used by AOT) |
 | `--artifact-dir` | `artifacts` |
 | `--build-dir` | `build` |
 
@@ -79,23 +79,40 @@ VTUNE_REFERENCE_CSV=<results-dir>/vtune_reference.csv
 ```
 
 JIT paths omit `<device-target>`; for example, `jit-g-O2`. AOT paths include it;
-for example, `aot-bmg-pvc-g-O2`. This keeps runtime-JIT and AOT artifacts separate.
+for example, `aot-bmg-g-O2`. This keeps runtime-JIT and AOT artifacts separate.
 
 `WORKLOAD_BUILD_DIR`, `WORKLOAD_RESULTS_DIR`, `KERNEL_DEBUG_JSON`,
 `VTUNE_RESULT_DIR`, and `VTUNE_REFERENCE_CSV` remain usable as environment
 overrides. `BUILD_TYPE`, `CMAKE_GENERATOR`, `GDB_ADDR2LINE`, `VTUNE_BIN`,
 `VTUNE_TARGET_GPU`, `VTUNE_COMPUTING_TASK`, `VTUNE_MAX_ATTEMPTS`,
-`UNITRACE_MAX_ATTEMPTS`, and `READELF_BIN` are also
-environment-controlled.
+`UNITRACE_BIN`, `UNITRACE_MAX_ATTEMPTS`, `UNITRACE_SAMPLING_INTERVAL`, and
+`READELF_BIN` are also environment-controlled. `UNITRACE_SAMPLING_INTERVAL` is
+the Unitrace stall-sampling interval in microseconds. It defaults to `0.5`,
+which matches VTune's default; Unitrace's own default of 50 us leaves short
+kernels with only a few samples. `UNITRACE_BIN` defaults to the sibling PTI SDK build at
+`../applications.analyzers.profilingtoolsinterfaces.sdk/tools/unitrace/build/unitrace`.
+
+Before collecting, `run` resolves each tool and logs the executable path, then
+logs the exact command for each attempt. If a tool is missing, the run fails
+right away and names the variable to set. If an attempt fails, the log shows
+the exit code or the reason no stall metrics were found, plus the files in the
+result directory. The final error lists the tool, workload, result directory,
+and full command.
 
 By default, analysis emits an address report for every kernel captured in
 `kernel_debug.json`. Set `VTUNE_COMPUTING_TASK` to report only one named kernel.
+Each kernel's report uses both `-source-object` and `-filter` for its computing
+task. `-source-object` on its own selects the listing but still counts the
+samples of every kernel in the module, plus samples outside any task.
 
 `--device-code jit` is the default and embeds portable SPIR-V for runtime
 compilation. `--device-code aot` uses `spir64_gen` and OCLOC during the build.
-By default it embeds native images for both `bmg` and `pvc`; select one with
-`--device-target bmg` or `--device-target pvc`. An AOT binary must run on a GPU
-matching one of its embedded images. The local Arc B580 uses `bmg`.
+By default (`--device-target auto`) it builds only for the Intel GPUs on this
+machine, detected from their PCI device IDs in `/sys/class/drm` (`0xe2xx` is
+`bmg`, `0x0bd0`-`0x0bdb` is `pvc`); the Arc B580 gives `bmg`. Pass
+`--device-target bmg`, `pvc`, or `bmg,pvc` to choose the targets yourself, and
+`./dwarf-check device-target` prints what `auto` resolves to. An AOT binary must
+run on a GPU matching one of its embedded images.
 
 Run the two modes as separate workflows:
 
@@ -103,8 +120,7 @@ Run the two modes as separate workflows:
 # Portable SPIR-V compiled by the driver at runtime.
 ./dwarf-check --debug g --opt O2 --device-code jit all
 
-# Native Battlemage and Ponte Vecchio code compiled during the build.
-# The Arc B580 selects the embedded BMG image at runtime.
+# Native code for this machine's GPU (BMG on the Arc B580), compiled during the build.
 ./dwarf-check --debug g --opt O2 --device-code aot all
 
 # Build only here; execution requires a Ponte Vecchio GPU.
@@ -117,21 +133,77 @@ that option for Intel SYCL device targets, so use `--debug g` for device DWARF.
 `run` requires an already-built workload binary and unrestricted ptrace access
 for VTune. `analyze` requires both an existing VTune result and manifest. VTune
 collection retries up to `VTUNE_MAX_ATTEMPTS=3` times after transient failures.
-Unitace stall collection requires the Xe observation policy to be unrestricted:
-`sudo sysctl -w dev.xe.observation_paranoid=0`. The runner accepts a Unitace
+Unitrace stall collection requires the Xe observation policy to be unrestricted:
+`sudo sysctl -w dev.xe.observation_paranoid=0`. The runner accepts a Unitrace
 capture only when it contains populated `metrics_*.csv` data and retries it up
 to `UNITRACE_MAX_ATTEMPTS=3` times to recover from transient metric-streamer
 read failures.
+
+## VTune vs Unitrace Comparison
+
+To check whether unitrace reports the same stall samples and source locations
+as VTune, without running any DWARF adapter:
+
+```bash
+sudo apt install python3-pyelftools               # needed by the unitrace extraction (or pip install pyelftools)
+./dwarf-check.sh workload build
+./dwarf-check.sh --clean-results run
+./dwarf-check.sh analyze --adapters none
+```
+
+`--adapters none` skips the resolver adapters (no cargo build needed). When both
+tools are selected (the default `--tool both`), `analyze` writes
+`<results>/vtune_vs_unitrace/` with, per kernel:
+
+- `vtune_vs_unitrace_<kernel>.csv`: every instruction of the kernel, with its
+  VTune IP and source location when VTune sampled it, beside unitrace's own
+  reported location when unitrace sampled it (from its `metrics_*.csv` `Source`
+  column, or the source table of its asm dump when that column is absent).
+- `vtune_vs_unitrace_dwarf_<kernel>.csv`: the same, with unitrace IPs mapped
+  through the zebin DWARF line table.
+- `*_summary.csv`: counts of instructions sampled by both tools with the
+  same or a different location, sampled by VTune only, sampled by unitrace
+  only, and listed by VTune but sampled by neither.
+
+The instruction text and offsets come from the asm dump unitrace (2.4 or newer)
+writes for every kernel it ran, `unitrace_results/unitrace.<pid>/asm/*.asm`.
+That dump is taken from the binary that ran on the GPU, so JIT and AOT are handled
+the same way and no IGC shader dump or extra build is needed.
+
+When unitrace reports only a file name, locations are matched by file name and line.
+
+### One-command VTune vs Unitrace report
+
+`./run_vtune_unitrace_report.sh` runs `dwarf-check.sh ... --clean-results all
+--adapters none` for every workload/configuration (all five workloads, `O0`-`O2`,
+JIT and AOT for this machine's GPU by default), then writes `artifacts/EXPERIMENT_RESULTS.md`
+and `artifacts/vtune_unitrace_summary.json` from that run's results. It loads
+oneAPI when `icpx` or `vtune` is not on PATH and checks for pyelftools and
+`dev.xe.observation_paranoid=0` before starting. Per-run logs go to
+`artifacts/logs/`; failed runs are listed in the report and make the script exit
+non-zero.
+
+```bash
+./run_vtune_unitrace_report.sh                                    # full matrix
+./run_vtune_unitrace_report.sh --workloads gemm,control_flow --opt-levels O0 --device-code jit
+./run_vtune_unitrace_report.sh --report-only                      # regenerate the report only
+```
+
+Use `--unitrace-bin PATH` (or `UNITRACE_BIN`) to select the unitrace build,
+`--oneapi PATH` for the oneAPI `setvars.sh`, and `--report PATH` to write the
+report elsewhere. Run `--help` for all options. See
+[VTUNE_UNITRACE_REPORT.md](VTUNE_UNITRACE_REPORT.md) for the full guide,
+including output files and troubleshooting.
 
 ## Experiment Matrix
 
 `./run_experiments.sh` runs the `g` debug mode at every optimization level for
 all five workloads as both JIT and AOT: 30 experiments by default. Each AOT
-experiment builds a BMG+PVC fat binary, while mode-specific artifact paths keep
+experiment builds for the GPUs on this machine (`AOT_TARGETS=auto`), while mode-specific artifact paths keep
 its build and result files separate from the JIT experiment. Every experiment
 builds the selected workload, runs it once under VTune, generates the reference,
-and compares the selected adapters. Set `AOT_TARGETS=bmg` or `AOT_TARGETS=pvc`
-to restrict the AOT target list. For a smaller matrix, set `WORKLOADS`,
+and compares the selected adapters. Set `AOT_TARGETS=bmg`, `pvc`, or `bmg,pvc`
+to choose the AOT targets. For a smaller matrix, set `WORKLOADS`,
 `OPT_LEVELS`, or `DEVICE_CODE_MODES`; for example,
 `WORKLOADS=gemm OPT_LEVELS=O0 DEVICE_CODE_MODES=jit ./run_experiments.sh`.
 
@@ -172,10 +244,10 @@ diagnostic sidecar, but does not use that JSON file for comparisons.
 
 For unitrace, `analyze` uses the sampled IPs with source locations from the
 matching native zebin's DWARF line table. This tests the same address-to-DWARF
-contract as VTune. The IGC `// File:` and `// Line` assembly markers are written
-to a separate `unitrace_reference_*.csv`, recorded in the manifest as
-`marker_reference_csv`, and remain a diagnostic: they may attribute an IP to an
-inlined helper or call site rather than the primary DWARF location.
+contract as VTune. The source table of unitrace's asm dump is written to a
+separate `unitrace_asm_reference_*.csv`, recorded in the manifest as
+`marker_reference_csv`, and unitrace's `metrics_*.csv` `Source` column to
+`unitrace_native_reference_*.csv`.
 
 For each selected adapter, the output directory contains a resolution CSV and
 a comparison JSON report. The default output directory is
